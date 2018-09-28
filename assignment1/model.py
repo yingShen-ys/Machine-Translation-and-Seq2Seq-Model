@@ -88,7 +88,7 @@ class LSTM(nn.Module):
             rev_H, rev_C = self.lstm_traverse(self.LSTMCell_rev, x, hc)
             H = torch.cat((H, rev_H), dim=-1)
             C = torch.cat((C, rev_C), dim=-1)
-        return H[:, -1, :], H, C
+        return H, C
 
 
 class LSTMSeq2seq(nn.Module):
