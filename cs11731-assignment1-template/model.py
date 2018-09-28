@@ -28,9 +28,10 @@ def lstm_cell_init_(lstm_cell):
 
 class LSTM(nn.Module):
     '''
-    An LSTM with recurrent dropout. API is slightly different than default LSTM in PyTorch.
+    An LSTM with recurrent dropout.
     Refer to "A Theoretically Grounded Applicaiton of Dropout in RNN" Gal et al. for details.
-    Doesn't have multi-layer options and hence dropout between stacks of LSTMs.
+    Currently it is fairly slow. May be a good place to start exercising with CUPY for writing
+    custom kernels though.
 
     Args:
          - input_size: the size of input vectors
@@ -56,11 +57,11 @@ class LSTM(nn.Module):
         batch_size = x.size(0)
         seq_len = x.size(1)
         if self.rdrop and self.training:
-            h_dropout_mask = dist.Bernoulli(probs=self.rdrop * x.new_ones(batch_size, self.hidden_size)).sample()
-            x_dropout_mask = dist.Bernoulli(probs=self.rdrop * x.new_ones(batch_size, self.input_size)).sample()
+            h_dropout_mask = dist.Bernoulli(probs=(1-self.rdrop) * x.new_ones(batch_size, self.hidden_size)).sample()
+            x_dropout_mask = dist.Bernoulli(probs=(1-self.rdrop) * x.new_ones(batch_size, self.input_size)).sample()
 
-        if self.rdrop and self.training: # only apply mask when it is training
-            x_tilde = x[:, 0, :] * x_dropout_mask / self.rdrop # inverted dropout here: scale at traning time
+        if self.rdrop and self.training:
+            x_tilde = x[:, 0, :] * x_dropout_mask / self.rdrop
         else:
             x_tilde = x[:, 0, :]
         hc = lstm(x_tilde, hc) # first time step
@@ -68,9 +69,9 @@ class LSTM(nn.Module):
         H = [hc[0]]
         C = [hc[1]]
         for t in range(1, seq_len):
-            if self.rdrop:
-                h_tilde = hc[0] * h_dropout_mask
-                x_tilde = x[:, t, :] * x_dropout_mask
+            if self.rdrop and self.training:
+                h_tilde = hc[0] * h_dropout_mask / self.rdrop
+                x_tilde = x[:, t, :] * x_dropout_mask / self.rdrop
             else:
                 h_tilde = hc[0]
                 x_tilde = x[:, t, :]
@@ -87,7 +88,7 @@ class LSTM(nn.Module):
             rev_H, rev_C = self.lstm_traverse(self.LSTMCell_rev, x, hc)
             H = torch.cat((H, rev_H), dim=-1)
             C = torch.cat((C, rev_C), dim=-1)
-        return H, C
+        return H[:, -1, :], H, C
 
 
 class LSTMSeq2seq(nn.Module):
