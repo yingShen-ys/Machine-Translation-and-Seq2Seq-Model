@@ -40,6 +40,7 @@ import pickle
 import sys
 import time
 import torch
+import copy
 from collections import namedtuple
 
 import numpy as np
@@ -56,6 +57,11 @@ from model import LSTMSeq2seq
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 Tensor = torch.tensor
 
+def print_log(content, log='train.log'):
+    print(content)
+    with open(log, 'w') as f:
+        f.write(content)
+        f.write('\n')
 
 def pad(idx):
     UNK_IDX = 0 # this is built-in into the vocab.py
@@ -245,6 +251,7 @@ def train(args: Dict[str, str]):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']))
+    optimizer_state_copy = copy.deepcopy(optimizer.state_dict())
     num_trial = 0
     train_iter = patience = cum_loss = report_loss = cumulative_tgt_words = report_tgt_words = 0
     cumulative_examples = report_examples = epoch = valid_num = 0
@@ -336,6 +343,7 @@ def train(args: Dict[str, str]):
                     patience = 0
                     print('save currently the best model to [%s]' % model_save_path, file=sys.stderr)
                     torch.save(model, model_save_path)
+                    optimizer_state_copy = copy.deepcopy(optimizer.state_dict())
 
                     # You may also save the optimizer's state
                 elif patience < int(args['--patience']):
@@ -358,7 +366,7 @@ def train(args: Dict[str, str]):
 
                         print('restore parameters of the optimizers', file=sys.stderr)
                         # You may also need to load the state of the optimizer saved before
-
+                        optimizer.load_state_dict(optimizer_state_copy)
                         # reset patience
                         patience = 0
 
