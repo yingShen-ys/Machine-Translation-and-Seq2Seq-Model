@@ -243,7 +243,7 @@ def train(args: Dict[str, str]):
                         vocab=vocab)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=args['--patience'])
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']))
     num_trial = 0
     train_iter = patience = cum_loss = report_loss = cumulative_tgt_words = report_tgt_words = 0
     cumulative_examples = report_examples = epoch = valid_num = 0
@@ -334,7 +334,7 @@ def train(args: Dict[str, str]):
                 if is_better:
                     patience = 0
                     print('save currently the best model to [%s]' % model_save_path, file=sys.stderr)
-                    model.save(model_save_path)
+                    torch.save(model, model_save_path)
 
                     # You may also save the optimizer's state
                 elif patience < int(args['--patience']):

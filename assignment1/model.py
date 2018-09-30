@@ -335,9 +335,9 @@ class LSTMSeq2seq(nn.Module):
         model = torch.load(model_path)
         return model
 
-    def save(self, path):
-        """
-        Save current model to file
-        """
-        torch.save(model, path)
-        return
+    # def save(self, path):
+    #     """
+    #     Save current model to file
+    #     """
+    #     torch.save(self, path)
+    #     return
