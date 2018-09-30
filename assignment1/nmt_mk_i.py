@@ -369,8 +369,12 @@ def train(args: Dict[str, str]):
 def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
     was_training = model.training
 
+    model.to('cpu') # single sentence decoding should be faster on a CPU, unless your GPU is wayyyyyy better...
     hypotheses = []
     for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+        src_lens = torch.LongTensor(list(map(len, src_sents)))
+        src_sents = pad(vocab.src.words2indices(src_sents))
+        src_sents = torch.LongTensor(src_sents)
         example_hyps = model.beam_search(src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
 
         hypotheses.append(example_hyps)
