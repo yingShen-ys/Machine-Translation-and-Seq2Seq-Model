@@ -57,11 +57,13 @@ from model import LSTMSeq2seq
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 Tensor = torch.tensor
 
-def print_log(content, log='train.log'):
-    print(content)
-    with open(log, 'w') as f:
-        f.write(content)
-        f.write('\n')
+original_print = print
+
+def print_log(content, file=sys.stderr):
+    original_print(content)
+    original_print(content, file=file)
+
+print = print_log
 
 def pad(idx):
     UNK_IDX = 0 # this is built-in into the vocab.py
