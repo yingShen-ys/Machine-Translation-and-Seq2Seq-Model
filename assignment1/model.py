@@ -253,6 +253,8 @@ class LSTMSeq2seq(nn.Module):
             # input(decoded_idx)
 
         sentence = list(map(lambda x: self.vocab.tgt.id2word[x], decoded_idx))
+        if prd_token.item() == END_TOKEN_IDX:
+            sentence = sentence[:-1] # remove the </s> token in final output
         greedy_hyp = Hypothesis(sentence, scores)
         self.training = True # turn training back on
         return [greedy_hyp] * beam_size

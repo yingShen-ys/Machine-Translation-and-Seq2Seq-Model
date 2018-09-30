@@ -229,6 +229,7 @@ def train(args: Dict[str, str]):
     valid_niter = int(args['--valid-niter'])
     log_every = int(args['--log-every'])
     model_save_path = args['--save-to']
+    lr = float(args['--lr'])
 
     vocab = pickle.load(open(args['--vocab'], 'rb'))
 
