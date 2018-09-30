@@ -5,8 +5,8 @@ A very basic implementation of neural machine translation
 
 Usage:
     nmt.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
-    nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
-    nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
+    nmt.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
+    nmt.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
 
 Options:
     -h --help                               show this screen.
@@ -366,16 +366,17 @@ def train(args: Dict[str, str]):
                     exit(0)
 
 
-def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
+def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int, vocab: Vocab) -> List[List[Hypothesis]]:
     was_training = model.training
 
-    model.to('cpu') # single sentence decoding should be faster on a CPU, unless your GPU is wayyyyyy better...
+    model.to('cuda') # single sentence decoding should be faster on a CPU, unless your GPU is wayyyyyy better...
     hypotheses = []
     for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
-        src_lens = torch.LongTensor(list(map(len, src_sents)))
-        src_sents = pad(vocab.src.words2indices(src_sents))
-        src_sents = torch.LongTensor(src_sents)
-        example_hyps = model.beam_search(src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
+        src_sent = [src_sent] # other parts of the code treat this as a list of sentences...
+        src_len = torch.LongTensor(list(map(len, src_sent))).to('cuda')
+        src_sent = pad(vocab.src.words2indices(src_sent))
+        src_sent = torch.LongTensor(src_sent).to('cuda')
+        example_hyps = model.beam_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
 
         hypotheses.append(example_hyps)
 
@@ -395,9 +396,11 @@ def decode(args: Dict[str, str]):
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     model = LSTMSeq2seq.load(args['MODEL_PATH'])
 
+    vocab = pickle.load(open(args['VOCAB_PATH'], 'rb'))
     hypotheses = beam_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
-                             max_decoding_time_step=int(args['--max-decoding-time-step']))
+                             max_decoding_time_step=int(args['--max-decoding-time-step']),
+                             vocab=vocab)
 
     if args['TEST_TARGET_FILE']:
         top_hypotheses = [hyps[0] for hyps in hypotheses]

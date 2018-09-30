@@ -29,17 +29,15 @@ python nmt_mk_i.py \
     --uniform-init 0.1 \
     --dropout 0.2 \
     --clip-grad 5.0 \
-    --lr-decay 0.5
-    
-# 2 >${work_dir}/err.log
+    --lr-decay 0.5 2 >${work_dir}/err.log
 
-# python nmt_mk_i.py \
-#     decode \
-#     --cuda \
-#     --beam-size 5 \
-#     --max-decoding-time-step 100 \
-#     ${work_dir}/model.bin \
-#     ${test_src} \
-#     ${work_dir}/decode.txt
+python nmt_mk_i.py \
+    decode \
+    --beam-size 5 \
+    --max-decoding-time-step 100 \
+    ${vocab} \
+    ${work_dir}/model.bin \
+    ${test_src} \
+    ${work_dir}/decode.txt
 
-# perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt
+perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt

@@ -217,7 +217,7 @@ class LSTMSeq2seq(nn.Module):
 
         return torch.sum(masked_log_likelihoods) # seems the training code assumes the log-likelihoods are summed per word
 
-    def beam_search(self, src_sent, src_lens, beam_size, max_decoding_step):
+    def beam_search(self, src_sent, src_lens, beam_size, max_decoding_time_step):
         '''
         Performs beam search decoding for testing the model. Currently just a fake method and only uses argmax decoding.
         '''
@@ -237,17 +237,20 @@ class LSTMSeq2seq(nn.Module):
         curr_score, prd_token = torch.max(curr_ll, dim=-1) # (batch_size,) the decoded tokens
         decoded_idx.append(prd_token.item())
         scores += curr_score.item()
+        # input(decoded_idx)
 
         decoding_step = 1
-        while decoding_step <= max_decoding_step and prd_token.item() != END_TOKEN_IDX:
+        while decoding_step <= max_decoding_time_step and prd_token.item() != END_TOKEN_IDX:
+            decoding_step += 1
             vector = self.trg_embedding(prd_token)
             h, c = self.decoder_lstm_cell(vector, (h, c))
             context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=dot_attn)
-            curr_logits = self.decoder_output_layer(torch.cat(h, context_vector), dim=-1)
+            curr_logits = self.decoder_output_layer(torch.cat((h, context_vector), dim=-1))
             curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
             curr_score, prd_token = torch.max(curr_ll, dim=-1)
             decoded_idx.append(prd_token.item())
             scores += curr_score.item()
+            # input(decoded_idx)
 
         sentence = list(map(lambda x: self.vocab.tgt.id2word[x], decoded_idx))
         greedy_hyp = Hypothesis(sentence, scores)
