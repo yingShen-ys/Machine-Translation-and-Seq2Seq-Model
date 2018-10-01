@@ -1,5 +1,7 @@
 # custom
 .idea/
+assignment1/data/
+assignment1/scripts/test.sh
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

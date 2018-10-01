@@ -10,6 +10,7 @@ import torch.distributions as dist
 import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, orthogonal_
 from collections import namedtuple
+from torch.autograd import Variable
 from utils import batch_iter
 
 
@@ -217,13 +218,153 @@ class LSTMSeq2seq(nn.Module):
 
         return torch.sum(masked_log_likelihoods) # seems the training code assumes the log-likelihoods are summed per word
 
-    def beam_search(self, src_sent, src_lens, beam_size, max_decoding_time_step):
-        '''
-        Performs beam search decoding for testing the model. Currently just a fake method and only uses argmax decoding.
-        '''
+
+    def beam_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True):
+        """
+        Given a single source sentence, perform beam search
+
+        Args:
+            src_sent: a single tokenized source sentence
+            beam_size: beam size
+            max_decoding_time_step: maximum number of time steps to unroll the decoding RNN
+
+        Returns:
+            hypotheses: a list of hypothesis, each hypothesis has two fields:
+            value: List[str]: the decoded target sentence, represented as a list of words
+            score: float: the log-likelihood of the target sentence
+        """
         self.training = False # turn of training
-        decoded_idx = []
-        scores = 0
+        if cuda:
+            torch.FloatTensor = torch.cuda.FloatTensor
+
+        decoded_beam_idx = []
+        bk_pointers = [[-1]]
+
+        src_states, final_state = self.encode(src_sent, src_lens) # (1, src_lens, hidden)
+        h = final_state
+        c = h.new_zeros(h.size(0), h.size(1), requires_grad=False)
+        start_token = src_sent.new_ones((1,)).long() * START_TOKEN_IDX # (batch_size,) should be </s>
+        vector = self.trg_embedding(start_token) # (batch_size, embedding_size)
+        h, c = self.decoder_lstm_cell(vector, (h, c))
+        context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=dot_attn) # (batch_size, hidden_size (*2))
+        curr_logits = self.decoder_output_layer(torch.cat((h, context_vector), dim=-1)) # (batch_size, vocab_size)
+        curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
+        best_scores, best_score_ids = torch.topk(curr_ll, beam_size, dim=-1) # (batch_size, beam_size)
+        best_beam_scores = best_scores # (batch_size, beam_size)
+        decoded_beam_idx.append(best_score_ids)
+
+        # (batch, ) -> (batch * beam_size, )
+        h = Variable(h.data.repeat(1, beam_size).view(-1, h.size()[-1]))
+        c = Variable(c.data.repeat(1, beam_size).view(-1, c.size()[-1]))
+        src_states = Variable(src_states.data.repeat(1, beam_size, 1).view(-1, src_states.size()[1], src_states.size()[2]))
+
+        survived_size = beam_size
+        survived_score = best_beam_scores
+        survived_pos = None
+        survived_id = decoded_beam_idx[-1].view(-1)
+        src_states_tmp = src_states
+        finished_scores = torch.cuda.FloatTensor([])
+        finished_pos = []
+
+        for t in range(1, max_decoding_time_step):
+            vectors = self.trg_embedding(survived_id.view(-1, survived_size)) # (batch_size, survived_size) -> (batch_size, survived_size, embedding_size)
+            vectors = vectors.view(-1, self.embedding_size) # (batch_size, survived_size, embedding_size) -> (batch_size * survived_size, embedding_size)
+
+            h, c = self.decoder_lstm_cell(vectors, (h, c))
+
+            context_vector = LSTMSeq2seq.compute_attention(h, src_states_tmp, src_lens, attn_func=dot_attn)
+
+            curr_logits = self.decoder_output_layer(torch.cat((h, context_vector), dim=-1))
+            curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
+            scores = (curr_ll + survived_score.view(-1, 1)).view(-1, self.trg_vocab_size*survived_size) # (batch_size, survived_size * vocab_size)
+            best_scores, best_score_ids = torch.topk(scores, beam_size, dim=-1) # (batch_size, beam_size)
+            best_beam_scores = best_scores
+            bk_pointer = best_score_ids / self.trg_vocab_size # (batch_size, beam_size)
+            best_score_ids = best_score_ids - bk_pointer * self.trg_vocab_size
+            bk_pointer_o = bk_pointer.view(-1)
+            if survived_pos is not None: # recalculate bk_pointer
+                bk_pointer = survived_pos[bk_pointer]
+            bk_pointers.append(bk_pointer)
+            decoded_beam_idx.append(best_score_ids)
+
+            end_id = best_score_ids.view(-1).data.eq(END_TOKEN_IDX)
+            survived_id = best_score_ids.view(-1)[~end_id]
+            survived_pos = (~end_id).nonzero().view(-1)
+            finished_num = end_id.nonzero().view(-1).size()[0]
+            survived_size = beam_size - finished_num
+            survived_score = best_beam_scores.view(-1)[~end_id]
+            if finished_num > 0: # check for </s>
+                # finished_scores.extend(best_beam_scores.view(-1)[end_id] / float(t))
+                finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id] / float(t)))
+                finished_pos.extend([(t, end_id.nonzero().view(-1)[i].item()) for i in range(0, finished_num)])
+
+            if t == max_decoding_time_step-1:
+                finished_scores = best_beam_scores.view(-1) / float(t)
+                finished_pos= [(t, i) for i in range(0, beam_size)]
+
+            if survived_size == 0:
+                break
+
+            # set h, c based on bk_pointer
+            prev_id = bk_pointer_o.view(-1)[survived_pos]
+            h = Variable(h[prev_id])
+            c = Variable(c[prev_id])
+            src_states_tmp = src_states[:survived_size, :, :]
+
+
+            # print(best_score_ids)
+            # print(end_id)
+            # print(survived_id)
+            # print(survived_pos)
+            # print(survived_id.size())
+            # print(h.size())
+            assert survived_id.size()[0] == h.size()[0]
+
+
+        # sort finished score and finished pos
+        best_scores, best_score_ids = torch.topk(torch.FloatTensor(finished_scores.cpu()), beam_size)
+        best_score_pos = [finished_pos[i.item()] for i in best_score_ids]
+
+
+        beam_hyps = []
+        for b in range(0, beam_size):
+            token_pos = best_score_pos[b] # (t, i)
+            pos = token_pos[1]
+            sentence = []
+            for bk_i in range(token_pos[0], 0, -1):
+                pos = bk_pointers[bk_i][0, pos].item()
+                token = decoded_beam_idx[bk_i - 1][0, pos].item()
+                sentence.append(token)
+
+            sentence = list(map(lambda x: self.vocab.tgt.id2word[x], reversed(sentence)))
+            beam_hyps.append(Hypothesis(sentence, best_scores[b].item()))
+
+        self.training = True # turn training back on
+        return beam_hyps
+
+
+    def beam_search_batch(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True):
+        """
+        Given a single source sentence, perform beam search
+
+        Args:
+            src_sent: a single tokenized source sentence
+            beam_size: beam size
+            max_decoding_time_step: maximum number of time steps to unroll the decoding RNN
+
+        Returns:
+            hypotheses: a list of hypothesis, each hypothesis has two fields:
+                value: List[str]: the decoded target sentence, represented as a list of words
+                score: float: the log-likelihood of the target sentence
+        """
+        self.training = False # turn of training
+        # if cuda:
+        #     torch.LongTensor = torch.cuda.LongTensor
+        #     torch.FloatTensor = torch.cuda.FloatTensor
+
+        decoded_beam_idx = []
+        best_beam_scores = None
+        bk_pointers = [[START_TOKEN_IDX]]
 
         src_states, final_state = self.encode(src_sent, src_lens)
         h = final_state
@@ -234,30 +375,61 @@ class LSTMSeq2seq(nn.Module):
         context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=dot_attn) # (batch_size, hidden_size (*2))
         curr_logits = self.decoder_output_layer(torch.cat((h, context_vector), dim=-1)) # (batch_size, vocab_size)
         curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
-        curr_score, prd_token = torch.max(curr_ll, dim=-1) # (batch_size,) the decoded tokens
-        decoded_idx.append(prd_token.item())
-        scores += curr_score.item()
-        # input(decoded_idx)
+        best_scores, best_score_ids = torch.topk(curr_ll, beam_size, dim=-1) # (batch_size, beam_size)
+        best_beam_scores = best_scores # (batch_size, beam_size)
+        decoded_beam_idx.append(best_score_ids)
+        # scores += curr_score.item()
 
-        decoding_step = 1
-        while decoding_step <= max_decoding_time_step and prd_token.item() != END_TOKEN_IDX:
-            decoding_step += 1
-            vector = self.trg_embedding(prd_token)
-            h, c = self.decoder_lstm_cell(vector, (h, c))
+        # end_ids = best_score_ids.data.eq(END_TOKEN_IDX)
+        # if end_ids.nonzero().size()[0] > 0
+
+        print(h,c)
+
+        # h (batch, hidden)
+        h = Variable(h.data.repeat(1, beam_size).view(-1, h.size()[-1]))
+        c = Variable(c.data.repeat(1, beam_size).view(-1, c.size()[-1]))
+
+        while _ in range(1, max_decoding_time_step):
+            vectors = self.trg_embedding(decoded_beam_idx[-1]) # (batch_size, beam_size) -> (batch_size, beam_size, embedding_size)
+            vectors = vectors.view(-1, self.embedding_size) # (batch_size, beam_size, vocab_size) -> (batch_size * beam_size, embedding_size)
+
+            h, c = self.decoder_lstm_cell(vectors, (h, c))
+
             context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=dot_attn)
             curr_logits = self.decoder_output_layer(torch.cat((h, context_vector), dim=-1))
             curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
-            curr_score, prd_token = torch.max(curr_ll, dim=-1)
-            decoded_idx.append(prd_token.item())
-            scores += curr_score.item()
-            # input(decoded_idx)
+            scores = (curr_ll + best_beam_scores.view(-1, 1)).view(-1, self.trg_vocab_size*beam_size) # (batch_size, beam_size * vocab_size)
+            best_scores, best_score_ids = torch.topk(scores, beam_size, dim=-1) # (batch_size, beam_size)
+            best_beam_scores = best_scores
+            bk_pointer = best_score_ids / self.trg_vocab_size
+            bk_pointers.append(bk_pointer)
+            best_score_ids = best_score_ids - bk_pointer * self.trg_vocab_size
+            decoded_beam_idx.append(best_score_ids)
 
-        sentence = list(map(lambda x: self.vocab.tgt.id2word[x], decoded_idx))
-        if prd_token.item() == END_TOKEN_IDX:
-            sentence = sentence[:-1] # remove the </s> token in final output
-        greedy_hyp = Hypothesis(sentence, scores)
-        self.training = True # turn training back on
-        return [greedy_hyp] * beam_size
+            h = Variable(h.data.repeat(1, beam_size).view(-1, h.size()[-1]))
+            c = Variable(c.data.repeat(1, beam_size).view(-1, c.size()[-1]))
+
+        # back track
+        beam_hyps = []
+        decoded_idx = []
+        for bk_i in range(len(bk_pointers) - 1, 0, -1):
+            token_poses = bk_pointers[bk_i][0, :]  # (beam_size)
+            tokens = decoded_beam_idx[bk_i - 1][token_poses]  # (beam_size)
+            decoded_idx.append(tokens)
+
+        decoded_idx = list(reversed(decoded_idx))
+        for b in range(0, beam_size):
+            sentence = decoded_idx[:][b]
+            valid_idx = ~sentence.data.eq(END_TOKEN_IDX).nonzero()
+            sentence = sentence[valid_idx]  # remove the </s> token
+            sentence = list(map(lambda x: self.vocab.tgt.id2word[x], sentence))
+            beam_hyps.append(Hypothesis(sentence, best_beam_scores[0, b].item()))
+
+        self.training = True  # turn training back on
+        return beam_hyps
+
+
+
 
     def evaluate_ppl(self, dev_data, batch_size, cuda=True):
         """
