@@ -210,10 +210,10 @@ def train(args: Dict[str, str]):
                 hist_valid_scores.append(valid_metric)
 
                 # also compute dev set BLEU
-                dev_hypotheses = beam_search(model, dev_data_src,
+                dev_hypotheses = greedy_search(model, dev_data_src,
                                         beam_size=int(args['--beam-size']),
                                         max_decoding_time_step=int(args['--max-decoding-time-step']),
-                                        vocab=vocab)
+                                        vocab=vocab, cuda=args['--cuda'])
 
                 dev_best_hypotheses = list(map(lambda x: x[0], dev_hypotheses))
                 dev_bleu = compute_corpus_level_bleu_score(dev_data_tgt, dev_best_hypotheses)
@@ -266,6 +266,23 @@ def beam_search(model: object, test_data_src: List[List[str]], beam_size: int, m
         src_sent = pad(vocab.src.words2indices(src_sent))
         src_sent = torch.LongTensor(src_sent).to('cuda')
         example_hyps = model.beam_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda)
+
+        hypotheses.append(example_hyps)
+
+    return hypotheses
+
+
+def greedy_search(model: object, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int, vocab: Vocab, cuda: str) -> List[List[Hypothesis]]:
+    was_training = model.training
+
+    model.to('cuda')
+    hypotheses = []
+    for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+        src_sent = [src_sent] # other parts of the code treat this as a list of sentences...
+        src_len = torch.LongTensor(list(map(len, src_sent))).to('cuda')
+        src_sent = pad(vocab.src.words2indices(src_sent))
+        src_sent = torch.LongTensor(src_sent).to('cuda')
+        example_hyps = model.greedy_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda)
 
         hypotheses.append(example_hyps)
 
