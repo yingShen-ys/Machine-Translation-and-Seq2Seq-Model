@@ -466,7 +466,7 @@ class OLSTMSeq2seq(LSTMSeq2seq):
     '''
 
     def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3):
-        super(OLSTMSeq2seq, self).__init__()
+        super(OLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
         self.vocab = vocab
         self.src_vocab_size = len(vocab.src)
         self.trg_vocab_size = len(vocab.tgt)
