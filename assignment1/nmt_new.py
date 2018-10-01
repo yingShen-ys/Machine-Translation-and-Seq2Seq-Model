@@ -42,7 +42,7 @@ import time
 from collections import namedtuple
 
 import numpy as np
-from typing import List, Tuple, Dict, Set, Union
+from typing import List, Tuple, Dict, Set, Union, Any
 from docopt import docopt
 from tqdm import tqdm
 from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunction
@@ -50,6 +50,11 @@ from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunct
 from utils import read_corpus, batch_iter
 from vocab import Vocab, VocabEntry
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.nn.utils import clip_grad_norm
+from torch import Tensor
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
