@@ -276,6 +276,7 @@ class LSTMSeq2seq(nn.Module):
             torch.LongTensor = torch.cuda.LongTensor
 
         for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
+            tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
             src_lens = torch.LongTensor(list(map(len, src_sents)))
             trg_lens = torch.LongTensor(list(map(len, tgt_sents)))
             
@@ -289,7 +290,6 @@ class LSTMSeq2seq(nn.Module):
 
             loss = loss.item()
             cum_loss += loss
-            tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
             cum_tgt_words += tgt_word_num_to_predict
 
         ppl = np.exp(cum_loss / cum_tgt_words)
