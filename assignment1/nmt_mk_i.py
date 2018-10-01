@@ -391,6 +391,7 @@ def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_
 
         hypotheses.append(example_hyps)
 
+
     return hypotheses
 
 

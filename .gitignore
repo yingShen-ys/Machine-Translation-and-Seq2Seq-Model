@@ -2,6 +2,7 @@
 .idea/
 assignment1/data/
 assignment1/scripts/test.sh
+assignment1/work_dir/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
