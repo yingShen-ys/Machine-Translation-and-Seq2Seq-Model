@@ -38,7 +38,6 @@ def lstm_cell_init_(lstm_cell):
     lstm_cell.bias_ih.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
     lstm_cell.bias_hh.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
 
-
 class LSTM(nn.Module):
     '''
     An LSTM with recurrent dropout.
@@ -132,9 +131,9 @@ class LSTMSeq2seq(nn.Module):
         self.bidirectional = bidirectional
         self.rdrop = dropout_rate
 
-    def forward(self, src_tokens, src_lens, trg_tokens, trg_lens):
+    def forward(self, src_tokens, src_lens, trg_tokens, trg_lens, teacher_forcing=0.5):
         src_states, final_states = self.encode(src_tokens, src_lens)
-        ll = self.decode(src_states, final_states, src_lens, trg_tokens, trg_lens)
+        ll = self.decode(src_states, final_states, src_lens, trg_tokens, trg_lens, teacher_forcing=teacher_forcing)
         return ll
 
     def encode(self, src_tokens, src_lens):
@@ -153,7 +152,7 @@ class LSTMSeq2seq(nn.Module):
         final_states = src_states[batch_idx, src_lens-1, :] # (batch_size, hidden_size (*2))
         return src_states, final_states
     
-    def decode(self, src_states, final_states, src_lens, trg_tokens, trg_lens, teacher_forcing=True, search_method='greedy'):
+    def decode(self, src_states, final_states, src_lens, trg_tokens, trg_lens, teacher_forcing=0.5, search_method='greedy'):
         '''
         Decode with attention and custom decoding.
         
@@ -182,13 +181,13 @@ class LSTMSeq2seq(nn.Module):
         neg_log_likelihoods = F.cross_entropy(curr_logits, trg_tokens[..., 1], reduction='none') # (batch_size,)
         nll.append(neg_log_likelihoods)
         _, prd_token = torch.max(curr_logits, dim=-1) # (batch_size,) the decoded tokens
-        if teacher_forcing:
+        if np.random.uniform() < teacher_forcing:
             prd_token = trg_tokens[..., 1] # feed the gold sequence token to the next time step
 
         # input(trg_tokens.shape)
         # TODO: check indexing
         for t in range(trg_tokens.size(-1)-2):
-            token = trg_tokens[:, t+1]
+            token = prd_token # trg_tokens[:, t+1]
             vector = self.trg_embedding(token)
             h, c = self.decoder_lstm_cell(vector, (h, c))
             context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=dot_attn)
@@ -196,7 +195,7 @@ class LSTMSeq2seq(nn.Module):
             neg_log_likelihoods = F.cross_entropy(curr_logits, trg_tokens[..., t+2], reduction='none') # (batch_size,)
             nll.append(neg_log_likelihoods)
             _, prd_token = torch.max(curr_logits, dim=-1)
-            if teacher_forcing:
+            if np.random.uniform() < teacher_forcing:
                 prd_token = trg_tokens[..., t+2]
         
         # computing the masked log-likelihood
@@ -277,6 +276,7 @@ class LSTMSeq2seq(nn.Module):
 
         for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
             tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
+            cum_tgt_words += tgt_word_num_to_predict
             src_lens = torch.LongTensor(list(map(len, src_sents)))
             trg_lens = torch.LongTensor(list(map(len, tgt_sents)))
             
@@ -290,7 +290,6 @@ class LSTMSeq2seq(nn.Module):
 
             loss = loss.item()
             cum_loss += loss
-            cum_tgt_words += tgt_word_num_to_predict
 
         ppl = np.exp(cum_loss / cum_tgt_words)
         self.training = True
@@ -362,9 +361,9 @@ class OLSTMSeq2seq(nn.Module):
         self.bidirectional = bidirectional
         self.rdrop = dropout_rate
 
-    def forward(self, src_tokens, src_lens, trg_tokens, trg_lens):
+    def forward(self, src_tokens, src_lens, trg_tokens, trg_lens, teacher_forcing=0.5):
         src_states, final_states = self.encode(src_tokens, src_lens)
-        ll = self.decode(src_states, final_states, src_lens, trg_tokens, trg_lens)
+        ll = self.decode(src_states, final_states, src_lens, trg_tokens, trg_lens, teacher_forcing=teacher_forcing)
         return ll
 
     def encode(self, src_tokens, src_lens):
@@ -383,7 +382,7 @@ class OLSTMSeq2seq(nn.Module):
         final_states = src_states[batch_idx, src_lens-1, :] # (batch_size, hidden_size (*2))
         return src_states, final_states
     
-    def decode(self, src_states, final_states, src_lens, trg_tokens, trg_lens, teacher_forcing=True, search_method='greedy'):
+    def decode(self, src_states, final_states, src_lens, trg_tokens, trg_lens, teacher_forcing=0.5, search_method='greedy'):
         '''
         Decode with attention and custom decoding.
         
@@ -412,13 +411,13 @@ class OLSTMSeq2seq(nn.Module):
         neg_log_likelihoods = F.cross_entropy(curr_logits, trg_tokens[..., 1], reduction='none') # (batch_size,)
         nll.append(neg_log_likelihoods)
         _, prd_token = torch.max(curr_logits, dim=-1) # (batch_size,) the decoded tokens
-        if teacher_forcing:
+        if np.random.uniform() < teacher_forcing:
             prd_token = trg_tokens[..., 1] # feed the gold sequence token to the next time step
 
         # input(trg_tokens.shape)
         # TODO: check indexing
         for t in range(trg_tokens.size(-1)-2):
-            token = trg_tokens[:, t+1]
+            token = prd_token # trg_tokens[:, t+1]
             vector = self.trg_embedding(token)
             h, c = self.decoder_lstm_cell(vector, (h, c))
             context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=dot_attn)
@@ -426,7 +425,7 @@ class OLSTMSeq2seq(nn.Module):
             neg_log_likelihoods = F.cross_entropy(curr_logits, trg_tokens[..., t+2], reduction='none') # (batch_size,)
             nll.append(neg_log_likelihoods)
             _, prd_token = torch.max(curr_logits, dim=-1)
-            if teacher_forcing:
+            if np.random.uniform() < teacher_forcing:
                 prd_token = trg_tokens[..., t+2]
         
         # computing the masked log-likelihood
