@@ -255,7 +255,7 @@ def train(args: Dict[str, str]):
                     exit(0)
 
 
-def beam_search(model: object, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int, vocab: Vocab) -> List[List[Hypothesis]]:
+def beam_search(model: object, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int, vocab: Vocab, cuda: str) -> List[List[Hypothesis]]:
     was_training = model.training
 
     model.to('cuda')
@@ -265,7 +265,7 @@ def beam_search(model: object, test_data_src: List[List[str]], beam_size: int, m
         src_len = torch.LongTensor(list(map(len, src_sent))).to('cuda')
         src_sent = pad(vocab.src.words2indices(src_sent))
         src_sent = torch.LongTensor(src_sent).to('cuda')
-        example_hyps = model.beam_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
+        example_hyps = model.beam_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda)
 
         hypotheses.append(example_hyps)
 
@@ -289,7 +289,7 @@ def decode(args: Dict[str, str]):
     hypotheses = beam_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
                              max_decoding_time_step=int(args['--max-decoding-time-step']),
-                             vocab=vocab)
+                             vocab=vocab, cuda=args['--cuda'])
 
     if args['TEST_TARGET_FILE']:
         top_hypotheses = [hyps[0] for hyps in hypotheses]
