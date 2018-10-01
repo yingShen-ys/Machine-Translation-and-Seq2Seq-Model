@@ -126,6 +126,7 @@ class LSTMSeq2seq(nn.Module):
         self.encoder_lstm = LSTM(embedding_size, hidden_size, rdrop=dropout_rate, bidirectional=bidirectional)
         self.decoder_lstm_cell = nn.LSTMCell(embedding_size, hidden_size * 2 if bidirectional else hidden_size)
         self.decoder_output_layer = nn.Linear(hidden_size * 4 if bidirectional else hidden_size * 2, self.trg_vocab_size)
+        self.dropout = nn.Dropout(dropout_rate)
 
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
@@ -235,7 +236,7 @@ class LSTMSeq2seq(nn.Module):
             decoding_step += 1
             vector = self.trg_embedding(prd_token)
             h, c = self.decoder_lstm_cell(vector, (h, c))
-            context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=dot_attn)
+            context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=dot_attn))
             curr_logits = self.decoder_output_layer(torch.cat((h, context_vector), dim=-1))
             curr_ll = F.log_softmax(curr_logits, dim=-1)  # transform logits into log-likelihoods
             curr_score, prd_token = torch.max(curr_ll, dim=-1)
