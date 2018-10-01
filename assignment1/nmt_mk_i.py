@@ -269,6 +269,7 @@ def train(args: Dict[str, str]):
         epoch += 1
         print(f"There are {len(train_data)//train_batch_size} batches in total.")
         for src_sents, tgt_sents in batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
+            tgt_words_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting leading `<s>`
             model.train()
             # print(src_sents)
             src_lens = torch.LongTensor(list(map(len, src_sents)))
@@ -295,7 +296,6 @@ def train(args: Dict[str, str]):
             report_loss += loss
             cum_loss += loss
 
-            tgt_words_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting leading `<s>`
             report_tgt_words += tgt_words_num_to_predict
             cumulative_tgt_words += tgt_words_num_to_predict
             report_examples += batch_size
