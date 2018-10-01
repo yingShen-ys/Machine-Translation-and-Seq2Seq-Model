@@ -12,7 +12,7 @@ from torch.nn.init import xavier_uniform_, orthogonal_
 from collections import namedtuple
 # from torch.autograd import Variable
 from utils import batch_iter
-
+import time
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 START_TOKEN_IDX = 1
@@ -306,6 +306,7 @@ class LSTMSeq2seq(nn.Module):
         finished_scores = torch.cuda.FloatTensor([])
         finished_pos = []
 
+        # decode target sentences
         for t in range(1, max_decoding_time_step):
             vectors = self.trg_embedding(survived_id.view(-1, survived_size)) # (batch_size, survived_size) -> (batch_size, survived_size, embedding_size)
             vectors = vectors.view(-1, self.embedding_size) # (batch_size, survived_size, embedding_size) -> (batch_size * survived_size, embedding_size)
@@ -319,24 +320,24 @@ class LSTMSeq2seq(nn.Module):
             scores = (curr_ll + survived_score.view(-1, 1)).view(-1, self.trg_vocab_size*survived_size) # (batch_size, survived_size * vocab_size)
             best_scores, best_score_ids = torch.topk(scores, beam_size, dim=-1) # (batch_size, beam_size)
             best_beam_scores = best_scores
+            # recalculate bk_pointer and ids
             bk_pointer = best_score_ids / self.trg_vocab_size # (batch_size, beam_size)
             best_score_ids = best_score_ids - bk_pointer * self.trg_vocab_size
-            # print(best_score_ids)
-            # print("bk_pointer_o:", bk_pointer)
             bk_pointer_o = bk_pointer.view(-1)
             if survived_pos is not None: # recalculate bk_pointer
                 bk_pointer = survived_pos[bk_pointer]
-            # print(bk_pointer)
+            # append decoded beam
             bk_pointers.append(bk_pointer)
             decoded_beam_idx.append(best_score_ids)
 
+            # check for </s>
             end_id = best_score_ids.view(-1).data.eq(END_TOKEN_IDX)
             survived_id = best_score_ids.view(-1)[~end_id]
             survived_pos = (~end_id).nonzero().view(-1)
             finished_num = end_id.nonzero().view(-1).size()[0]
             survived_size = beam_size - finished_num
             survived_score = best_beam_scores.view(-1)[~end_id]
-            if finished_num > 0: # check for </s>
+            if finished_num > 0: # add finished sentence
                 finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id] / float(t)))
                 finished_pos.extend([(t, end_id.nonzero().view(-1)[i].item()) for i in range(0, finished_num)])
             elif t == max_decoding_time_step-1:
@@ -346,33 +347,19 @@ class LSTMSeq2seq(nn.Module):
             if survived_size == 0:
                 break
 
-            # set h, c based on bk_pointer
+            # prepare h, c based on bk_pointer
             prev_id = bk_pointer_o.view(-1)[survived_pos]
-            # h = Variable(h[prev_id])
-            # c = Variable(c[prev_id])
             h = h[prev_id]
             c = c[prev_id]
             src_states_tmp = src_states[:survived_size, :, :]
 
-            # if h.size()[0] < 5:
-            #     print(best_score_ids)
-            #     print(end_id)
-            #     print(survived_id)
-            #     print(survived_pos)
-            #     print(survived_id.size())
-            #     print(h.size())
-
             assert survived_id.size()[0] == h.size()[0]
-
-        # print(bk_pointers)
-        # print(decoded_beam_idx)
-        # print(finished_scores)
-        # print(finished_pos)
 
         # sort finished score and finished pos
         best_scores, best_score_ids = torch.topk(torch.FloatTensor(finished_scores.cpu()), beam_size)
         best_score_pos = [finished_pos[i.item()] for i in best_score_ids]
 
+        # back track
         beam_hyps = []
         for b in range(0, beam_size):
             token_pos = best_score_pos[b] # (t, i)
@@ -385,9 +372,6 @@ class LSTMSeq2seq(nn.Module):
 
             sentence = list(map(lambda x: self.vocab.tgt.id2word[x], reversed(sentence)))
             beam_hyps.append(Hypothesis(sentence, best_scores[b].item()))
-        # print(list(map(lambda x: (x,self.vocab.tgt.id2word[x]), [53, 307, 608, 20, 7])))
-        # print(beam_hyps[0])
-        # exit(0)
         self.training = True # turn training back on
         return beam_hyps
 
