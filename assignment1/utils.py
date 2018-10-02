@@ -3,6 +3,7 @@ from typing import List
 
 import numpy as np
 import torch.nn as nn
+import torch.nn.functional as F
 
 class LabelSmoothedCrossEntropy(nn.Module):
     '''
@@ -20,7 +21,7 @@ class LabelSmoothedCrossEntropy(nn.Module):
 
     def forward(self, pred, target):
         loss_1 = self.ce(pred, target)
-        loss_2 = pred.log().sum(1) / pred.size(1)
+        loss_2 = - F.log_softmax(pred).sum(1) / pred.size(1)
         loss = loss_1 * self.smoothing_coeff + loss_2 * (1 - self.smoothing_coeff)
         return loss
 

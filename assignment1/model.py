@@ -118,19 +118,19 @@ class LSTMSeq2seq(nn.Module):
 
     def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
         super(LSTMSeq2seq, self).__init__()
-        self.state_size = hidden_size * 2 if bidirectional else hidden_size * 1
+        self.state_size = (hidden_size * 2 if bidirectional else hidden_size * 1) * num_layers
         self.vocab = vocab
         self.src_vocab_size = len(vocab.src)
         self.trg_vocab_size = len(vocab.tgt)
         self.src_embedding = nn.Embedding(self.src_vocab_size, embedding_size)
         self.trg_embedding = nn.Embedding(self.trg_vocab_size, embedding_size)
         self.encoder_lstm = LSTM(embedding_size, hidden_size, rdrop=dropout_rate, bidirectional=bidirectional)
-        self.decoder_lstm_cell = nn.LSTMCell(embedding_size + self.state_size, self.state_size)
-        self.decoder_hidden_layer = nn.Linear(self.state_size * 2, self.state_size)
-        self.decoder_output_layer = nn.Linear(self.state_size, self.trg_vocab_size)
+        self.decoder_lstm_cell = nn.LSTMCell(embedding_size + self.state_size // num_layers, self.state_size // num_layers)
+        self.decoder_hidden_layer = nn.Linear(2 * self.state_size // num_layers, self.state_size // num_layers)
+        self.decoder_output_layer = nn.Linear(self.state_size // num_layers, self.trg_vocab_size)
         self.dropout = nn.Dropout(dropout_rate)
         self.attn_func = dot_attn
-        self.enc_final_to_dec_init = nn.Linear(hidden_size * 2, hidden_size * 2)
+        self.enc_final_to_dec_init = nn.Linear(self.state_size, self.state_size // num_layers)
         self.label_smooth = label_smooth
         self.num_layers = num_layers
         if label_smooth < 1.0:
@@ -157,18 +157,19 @@ class LSTMSeq2seq(nn.Module):
              - src_lens: a torch tensor of the sentence lengths in the batch, with shape (batch_size,) >> LongTensor
         '''
         src_vectors = self.src_embedding(src_tokens) # (batch_size, max_seq_len, embedding_size)
-        packed_src_states = torch.nn.utils.rnn.pack_padded_sequence(src_vectors, src_lens, batch_first=True)
+        packed_src_vectors = torch.nn.utils.rnn.pack_padded_sequence(src_vectors, src_lens, batch_first=True)
         packed_src_states, final_states = self.encoder_lstm(packed_src_vectors) # both (batch_size, max_seq_len, hidden_size (*2))
 
         # need to use src_lens to pick out the actual last states of each sequence
         # batch_idx = torch.arange(0, src_states.size(0), out = src_states.new(0)).long()
         # final_states = src_states[batch_idx, src_lens-1, :] # (batch_size, hidden_size (*2))
         src_states, _ = torch.nn.utils.rnn.pad_packed_sequence(packed_src_states, batch_first=True)
-        final_cell_states = final_states[-1]
+        final_cell_states = final_states[-1].permute(1, 0, 2)
 
         # use a linear mapping to bridge encoder and decoder
-        c = self.enc_final_to_dec_init(final_cell_states)
-        h = F.tanh(c)
+        batch_size = final_cell_states.size(0)
+        c = self.enc_final_to_dec_init(final_cell_states.contiguous().view(batch_size, -1))
+        h = torch.tanh(c)
         return src_states, (h, c)
     
     def decode(self, src_states, final_states, src_lens, trg_tokens, trg_lens, teacher_forcing=0.5):
@@ -189,7 +190,7 @@ class LSTMSeq2seq(nn.Module):
         # dealing with the start token
         start_token = trg_tokens[..., 0] # (batch_size,)
         vector = self.trg_embedding(start_token) # (batch_size, embedding_size)
-        vector = torch.cat((vector, vector), dim=-1) # input feeding at first step: no previous attentional vector
+        vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size//self.num_layers)), dim=-1) # input feeding at first step: no previous attentional vector
         h, c = self.decoder_lstm_cell(vector, final_states)
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
@@ -238,7 +239,7 @@ class LSTMSeq2seq(nn.Module):
         src_states, final_state = self.encode(src_sent, src_lens)
         start_token = src_sent.new_ones((1,)).long() * START_TOKEN_IDX  # (batch_size,) should be </s>
         vector = self.trg_embedding(start_token)  # (batch_size, embedding_size)
-        vector = torch.cat((vector, vector), dim=-1) # input feeding at first step: no previous attentional vector
+        vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size//self.num_layers)), dim=-1) # input feeding at first step: no previous attentional vector
         h, c = self.decoder_lstm_cell(vector, final_state)
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens,
                                                        attn_func=self.attn_func))  # (batch_size, hidden_size (*2))
@@ -296,7 +297,7 @@ class LSTMSeq2seq(nn.Module):
         # decode start token
         start_token = src_sent.new_ones((1,)).long() * START_TOKEN_IDX # (batch_size,) should be </s>
         vector = self.trg_embedding(start_token) # (batch_size, embedding_size)
-        vector = torch.cat((vector, vector), dim=-1) # input feeding at first step
+        vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size)//self.num_layers), dim=-1) # input feeding at first step
         h, c = self.decoder_lstm_cell(vector, final_state)
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
@@ -454,7 +455,7 @@ class LSTMSeq2seq(nn.Module):
 
         # create masks, assuming padding is AT THE END
         idx = torch.arange(0, src_states.size(1), out=curr_state.new(1).long()).unsqueeze(0)
-        mask = (idx < src_lens.unsqueeze(1)-1).float() # make use of the automatic expansion in comparison. </s> token should receive 0 score
+        mask = (idx < src_lens.unsqueeze(1)).float() # make use of the automatic expansion in comparison. </s> token should receive 0 score
         mask[:, 0] = 0 # <s> tokens should receive 0 score
 
         # manual softmax with masking
