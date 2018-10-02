@@ -132,7 +132,7 @@ def train(args: Dict[str, str]):
 
     init_tf_rate = 1.0
     decay_steps = len(train_data) * 3
-    min_tf_rate = 0.3
+    min_tf_rate = 0.5
     while True:
         epoch += 1
         print(f"There are {len(train_data)//train_batch_size} batches in total.")
@@ -150,7 +150,7 @@ def train(args: Dict[str, str]):
             tgt_sents = torch.LongTensor(tgt_sents)
 
             train_iter += 1
-            tf_rate = init_tf_rate - (init_tf_rate - min_tf_rate) * (train_iter / decay_steps)
+            tf_rate = init_tf_rate - (init_tf_rate - min_tf_rate) * min(train_iter / decay_steps, 1)
 
             # (batch_size,)
             loss = -model(src_sents, src_lens, tgt_sents, trg_lens, teacher_forcing=tf_rate)
