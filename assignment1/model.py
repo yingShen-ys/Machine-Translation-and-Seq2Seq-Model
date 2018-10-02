@@ -4,6 +4,7 @@
 Basic seq2seq model with LSTMs and attention
 """
 import numpy as np
+import math
 import torch
 import torch.nn as nn
 import torch.distributions as dist
@@ -11,7 +12,7 @@ import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, orthogonal_
 from collections import namedtuple
 # from torch.autograd import Variable
-from utils import batch_iter, LabelSmoothedCrossEntropy
+from utils import batch_iter, LabelSmoothedCrossEntropy, lstm_cell_init_, lstm_init_
 import time
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
@@ -28,23 +29,12 @@ def pad(idx):
 def dot_attn(a, b): # computes (batch_size, hidden_size) X (batch_size, max_seq_len, hidden_size) >> (batch_size, max_seq_len, 1)
     return torch.einsum('bi,bji->bj', (a, b)).unsqueeze(-1)
 
-def lstm_cell_init_(lstm_cell):
-    '''
-    Initialize the LSTMCell parameters in a slightly better way
-    '''
-    xavier_uniform_(lstm_cell.weight_ih.data)
-    orthogonal_(lstm_cell.weight_hh.data)
-    lstm_cell.bias_ih.data.fill_(0)
-    lstm_cell.bias_hh.data.fill_(0)
-    lstm_cell.bias_ih.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
-    lstm_cell.bias_hh.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
-
 class LSTM(nn.Module):
     '''
     An LSTM with recurrent dropout.
     Refer to "A Theoretically Grounded Applicaiton of Dropout in RNN" Gal et al. for details.
     Currently it is fairly slow. May be a good place to start exercising with CUPY for writing
-    custom kernels though.
+    custom kernels though. TODO: support packedsequence as input.
 
     Args:
          - input_size: the size of input vectors
@@ -297,7 +287,7 @@ class LSTMSeq2seq(nn.Module):
         # decode start token
         start_token = src_sent.new_ones((1,)).long() * START_TOKEN_IDX # (batch_size,) should be </s>
         vector = self.trg_embedding(start_token) # (batch_size, embedding_size)
-        vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size)//self.num_layers), dim=-1) # input feeding at first step
+        vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size//self.num_layers)), dim=-1) # input feeding at first step
         h, c = self.decoder_lstm_cell(vector, final_state)
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
@@ -314,6 +304,9 @@ class LSTMSeq2seq(nn.Module):
         h = h.data.repeat(1, beam_size).view(-1, h.size(-1))
         c = c.data.repeat(1, beam_size).view(-1, c.size(-1))
         src_states = src_states.data.repeat(1, beam_size, 1).view(-1, src_states.size(1), src_states.size(2))
+
+        # TODO: this attention vector need to be appended to the input at every step
+        # but during the following loop it seems its shape changes across different time steps
         curr_attn_vector = curr_attn_vector.data.repeat(1, beam_size).view(-1, curr_attn_vector.size(-1))
 
         survived_size = beam_size
@@ -328,6 +321,8 @@ class LSTMSeq2seq(nn.Module):
         for t in range(1, max_decoding_time_step):
             vectors = self.trg_embedding(survived_id.view(-1, survived_size)) # (batch_size, survived_size) -> (batch_size, survived_size, embedding_size)
             vectors = vectors.view(-1, self.embedding_size) # (batch_size, survived_size, embedding_size) -> (batch_size * survived_size, embedding_size)
+            print(vectors.shape)
+            print(curr_attn_vector.shape)
             vectors = torch.cat((vectors, curr_attn_vector), dim=-1) # input feeding again...
             h, c = self.decoder_lstm_cell(vectors, (h, c))
 
@@ -515,15 +510,15 @@ class MultiAttnLSTMSeq2seq(LSTMSeq2seq):
         super(MultiAttnLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
         self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
         if kvq_dim is None:
-            kvq_dim = hidden_size*2 if bidirectional else hidden_size
+            kvq_dim = self.state_size // self.num_layers
         
         self.attn_func = self.kvq_multi_attn
 
-        self.src_states_to_value = nn.Linear(hidden_size*2 if bidirectional else hidden_size, kvq_dim)
-        self.src_states_to_key = nn.Linear(hidden_size*2 if bidirectional else hidden_size, kvq_dim)
-        self.trg_state_to_query = nn.Linear(hidden_size*2 if bidirectional else hidden_size, kvq_dim)
+        self.src_states_to_value = nn.Linear(self.state_size // self.num_layers, kvq_dim)
+        self.src_states_to_key = nn.Linear(self.state_size // self.num_layers, kvq_dim)
+        self.trg_state_to_query = nn.Linear(self.state_size // self.num_layers, kvq_dim)
         self.key_query_to_multi = nn.Linear(kvq_dim * 2, attn_size)
-        self.decoder_output_layer = nn.Linear(kvq_dim * attn_size + hidden_size*2 if bidirectional else hidden_size, self.trg_vocab_size)
+        self.decoder_output_layer = nn.Linear(kvq_dim * attn_size + self.state_size // self.num_layers, self.trg_vocab_size)
 
     def kvq_multi_attn(self, curr_state, src_states): # (batch_size, hidden_state (*2)), (batch_size, max_seq_len, kvq_dim)
         query_vector = self.trg_state_to_query(curr_state) # (batch_size, hidden_state (*2))
@@ -531,3 +526,62 @@ class MultiAttnLSTMSeq2seq(LSTMSeq2seq):
         key_vectors = self.src_states_to_key(src_states) # (batch_size, max_seq_len, kvq_dim)
         attn_scores = self.key_query_to_multi(torch.cat((expanded_query_vectors, key_vectors), dim=-1)) # (b, m, attn_size)
         return attn_scores
+
+class ScaledAttnLSTMSeq2seq(LSTMSeq2seq):
+    '''
+    An LSTM based seq2seq model with language as input. LSTM is based on original PyTorch implementation.
+    The attention function is a customized scaled dot product attention
+
+    Args:
+         - vocab: the vocab file from vocab.py
+         - embedding_size: the size of the embedding
+         - hidden_size: the size of the LSTM states, applies to encoder
+         - bidirectional: whether or not the encoder is bidirectional
+         - rdrop: whether there is a recurrent dropout on the encoder side
+    '''
+
+    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
+        super(OLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
+        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
+        self.attn_scaler = nn.Linear(2 * self.state_size // self.num_layers, 1)
+        self.attn_func = self.scaled_dot_attn
+
+    def scaled_dot_attn(self, a, b):
+        '''
+        Scaled dot attn where the scale is not sqrt of size, but size ** (1-eps(a, b))
+        '''
+        expanded_a = a.unsqueeze(1).expand_as(b) # (batch_size, max_src_len, *)
+        epsilon = self.attn_scaler(expanded_a) # (batch_size, max_src_len, 1)
+        dot_attn_scores = dot_attn(a, b)
+        scales = torch.exp((1 - epsilon) * math.log(b.size(-1))) # size ** (1-eps) = exp( (1-eps) * log(size) )
+        scaled_dot_attn = dot_attn_scores / scales
+        return scaled_dot_attn
+
+class RecurrentAttnLSTMSeq2seq(LSTMSeq2seq):
+    '''
+    An LSTM based seq2seq model with language as input. LSTM is based on original PyTorch implementation.
+    The attention is based on a bidirectional LSTM to make the attention generation more "positional"
+
+    Args:
+         - vocab: the vocab file from vocab.py
+         - embedding_size: the size of the embedding
+         - hidden_size: the size of the LSTM states, applies to encoder
+         - bidirectional: whether or not the encoder is bidirectional
+         - rdrop: whether there is a recurrent dropout on the encoder side
+    '''
+
+    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
+        super(OLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
+        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
+        self.attention_lstm = nn.LSTM(self.state_size // self.num_layers, self.state_size // self.num_layers, bidirectional=True, batch_first=True)
+        self.attn_scaler = nn.Linear(2 * self.state_size // self.num_layers, 1)
+
+    def recurrent_attn(self, a, b):
+        h = a # (batch_size, *)
+        c = torch.tanh(a)
+        
+        epsilon = self.attn_scaler(expanded_a) # (batch_size, max_src_len, 1)
+        dot_attn_scores = dot_attn(a, b)
+        scales = torch.exp((1 - epsilon) * math.log(b.size(-1))) # size ** (1-eps) = exp( (1-eps) * log(size) )
+        scaled_dot_attn = dot_attn_scores / scales
+        return scaled_dot_attn

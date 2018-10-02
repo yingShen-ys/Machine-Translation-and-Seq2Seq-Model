@@ -52,10 +52,10 @@ from docopt import docopt
 from tqdm import tqdm
 from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunction
 
-from utils import read_corpus, batch_iter
+from utils import read_corpus, batch_iter, lstm_init_
 from vocab import Vocab, VocabEntry
-from model import MultiAttnLSTMSeq2seq, OLSTMSeq2seq, LSTMSeq2seq
-
+from model import MultiAttnLSTMSeq2seq, OLSTMSeq2seq, LSTMSeq2seq, lstm_cell_init_
+from torch.nn.init import uniform_
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 Tensor = torch.tensor
@@ -73,7 +73,7 @@ def pad(idx):
     max_len = max(map(len, idx))
     for sent in idx:
         sent += [0] * (max_len - len(sent))
-    return idx
+    return idx    
 
 def compute_corpus_level_bleu_score(references: List[List[str]], hypotheses: List[Hypothesis]) -> float:
     """
@@ -131,8 +131,17 @@ def train(args: Dict[str, str]):
                         num_layers=int(args['--encoder-layers']))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']))
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
     optimizer_state_copy = copy.deepcopy(optimizer.state_dict())
+
+    # uniformly initialize all parameters
+    for parameter in model.parameters():
+        uniform_(parameter, a=-float(args['--uniform-init']), b=float(args['--uniform-init']))
+
+    # carefully initialize LSTMs
+    lstm_init_(model.encoder_lstm)
+    lstm_cell_init_(model.decoder_lstm_cell)
+
     num_trial = 0
     train_iter = patience = cum_loss = report_loss = cumulative_tgt_words = report_tgt_words = 0
     cumulative_examples = report_examples = epoch = valid_num = 0
