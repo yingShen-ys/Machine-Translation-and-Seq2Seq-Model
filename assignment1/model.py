@@ -300,13 +300,10 @@ class LSTMSeq2seq(nn.Module):
         decoded_beam_idx.append(best_score_ids)
         _, prd_token = torch.max(curr_ll, dim=-1)
 
-        # expand h, c, src_states for next beam_size tokens: (batch, ) -> (batch * beam_size, )
+        # expand h, c, src_states, curr_attn_vector for next beam_size tokens: (batch, ) -> (batch * beam_size, )
         h = h.data.repeat(1, beam_size).view(-1, h.size(-1))
         c = c.data.repeat(1, beam_size).view(-1, c.size(-1))
         src_states = src_states.data.repeat(1, beam_size, 1).view(-1, src_states.size(1), src_states.size(2))
-
-        # TODO: this attention vector need to be appended to the input at every step
-        # but during the following loop it seems its shape changes across different time steps
         curr_attn_vector = curr_attn_vector.data.repeat(1, beam_size).view(-1, curr_attn_vector.size(-1))
 
         survived_size = beam_size
@@ -321,8 +318,6 @@ class LSTMSeq2seq(nn.Module):
         for t in range(1, max_decoding_time_step):
             vectors = self.trg_embedding(survived_id.view(-1, survived_size)) # (batch_size, survived_size) -> (batch_size, survived_size, embedding_size)
             vectors = vectors.view(-1, self.embedding_size) # (batch_size, survived_size, embedding_size) -> (batch_size * survived_size, embedding_size)
-            print(vectors.shape)
-            input(curr_attn_vector.shape)
             vectors = torch.cat((vectors, curr_attn_vector), dim=-1) # input feeding again...
             h, c = self.decoder_lstm_cell(vectors, (h, c))
 
@@ -364,6 +359,7 @@ class LSTMSeq2seq(nn.Module):
             # prepare h, c based on bk_pointer
             prev_id = bk_pointer_o.view(-1)[survived_pos]
             h = h[prev_id]
+            curr_attn_vector = curr_attn_vector[prev_id]
             c = c[prev_id]
             src_states_tmp = src_states[:survived_size, :, :]
 
