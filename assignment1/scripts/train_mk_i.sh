@@ -8,13 +8,14 @@ dev_tgt="data/valid.de-en.en"
 test_src="data/test.de-en.de"
 test_tgt="data/test.de-en.en"
 
-work_dir="work_dir"
+work_dir="work_dir_tfa_drop_if_ls9"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
 
-python nmt_mk_i.py \
+python nmt_mk_iii.py \
     train \
+    --model-type original_lstm \
     --cuda \
     --vocab ${vocab} \
     --train-src ${train_src} \
@@ -31,7 +32,7 @@ python nmt_mk_i.py \
     --clip-grad 5.0 \
     --lr-decay 0.5 2>${work_dir}/err.log
 
-python nmt_mk_i.py \
+python nmt_mk_iii.py \
     decode \
     --beam-size 5 \
     --max-decoding-time-step 100 \
