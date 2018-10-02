@@ -551,7 +551,7 @@ class ScaledAttnLSTMSeq2seq(LSTMSeq2seq):
         Scaled dot attn where the scale is not sqrt of size, but size ** (1-eps(a, b))
         '''
         expanded_a = a.unsqueeze(1).expand_as(b) # (batch_size, max_src_len, *)
-        epsilon = self.attn_scaler(expanded_a) # (batch_size, max_src_len, 1)
+        epsilon = self.attn_scaler(torch.cat((expanded_a, b), dim=-1)) # (batch_size, max_src_len, 1)
         dot_attn_scores = dot_attn(a, b)
         scales = torch.exp((1 - epsilon) * math.log(b.size(-1))) # size ** (1-eps) = exp( (1-eps) * log(size) )
         scaled_dot_attn = dot_attn_scores / scales
