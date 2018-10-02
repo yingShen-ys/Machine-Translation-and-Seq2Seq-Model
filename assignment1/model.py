@@ -157,13 +157,13 @@ class LSTMSeq2seq(nn.Module):
              - src_lens: a torch tensor of the sentence lengths in the batch, with shape (batch_size,) >> LongTensor
         '''
         src_vectors = self.src_embedding(src_tokens) # (batch_size, max_seq_len, embedding_size)
-        packed_src_states = torch.nn.utils.rnn.pack_padded_sequence(src_vectors, src_lens)
+        packed_src_states = torch.nn.utils.rnn.pack_padded_sequence(src_vectors, src_lens, batch_first=True)
         packed_src_states, final_states = self.encoder_lstm(packed_src_vectors) # both (batch_size, max_seq_len, hidden_size (*2))
 
         # need to use src_lens to pick out the actual last states of each sequence
         # batch_idx = torch.arange(0, src_states.size(0), out = src_states.new(0)).long()
         # final_states = src_states[batch_idx, src_lens-1, :] # (batch_size, hidden_size (*2))
-        src_states, _ = torch.nn.utils.rnn.pad_packed_sequence(packed_src_states)
+        src_states, _ = torch.nn.utils.rnn.pad_packed_sequence(packed_src_states, batch_first=True)
         final_cell_states = final_states[-1]
 
         # use a linear mapping to bridge encoder and decoder
