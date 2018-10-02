@@ -574,14 +574,11 @@ class RecurrentAttnLSTMSeq2seq(LSTMSeq2seq):
         super(RecurrentLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
         self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
         self.attention_lstm = nn.LSTM(self.state_size // self.num_layers, self.state_size // self.num_layers, bidirectional=True, batch_first=True)
-        self.attn_scaler = nn.Linear(2 * self.state_size // self.num_layers, 1)
+        self.attn_states_to_scores = nn.Linear(self.state_size // self.num_layers, 1)
 
     def recurrent_attn(self, a, b):
         h = a # (batch_size, *)
         c = torch.tanh(a)
-        
-        epsilon = self.attn_scaler(expanded_a) # (batch_size, max_src_len, 1)
-        dot_attn_scores = dot_attn(a, b)
-        scales = torch.exp((1 - epsilon) * math.log(b.size(-1))) # size ** (1-eps) = exp( (1-eps) * log(size) )
-        scaled_dot_attn = dot_attn_scores / scales
-        return scaled_dot_attn
+        attention_states, _ = self.attention_lstm(b, (h, c))
+        attn_scores = self.attn_states_to_scores(attention_states)
+        return attn_scores
