@@ -185,8 +185,8 @@ class LSTMSeq2seq(nn.Module):
         vector = self.trg_embedding(start_token) # (batch_size, embedding_size)
         vector = torch.cat((vector, vector), dim=-1) # input feeding at first step: no previous attentional vector
         h, c = self.decoder_lstm_cell(vector, final_states)
-        context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func) # (batch_size, hidden_size (*2))
-        curr_attn_vector = self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)) # the thing to feed in input feeding
+        context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
+        curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
         curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
         neg_log_likelihoods = F.cross_entropy(curr_logits, trg_tokens[..., 1], reduction='none') # (batch_size,)
         nll.append(neg_log_likelihoods)
@@ -201,8 +201,8 @@ class LSTMSeq2seq(nn.Module):
             vector = self.trg_embedding(token)
             vector = torch.cat((vector, curr_attn_vector), dim=-1) # input feeding
             h, c = self.decoder_lstm_cell(vector, (h, c))
-            context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)
-            curr_attn_vector = self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)) # the thing to feed in input feeding
+            context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func))
+            curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
             curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
             neg_log_likelihoods = F.cross_entropy(curr_logits, trg_tokens[..., t+2], reduction='none') # (batch_size,)
             nll.append(neg_log_likelihoods)
@@ -234,9 +234,9 @@ class LSTMSeq2seq(nn.Module):
         vector = self.trg_embedding(start_token)  # (batch_size, embedding_size)
         vector = torch.cat((vector, vector), dim=-1) # input feeding at first step: no previous attentional vector
         h, c = self.decoder_lstm_cell(vector, final_state)
-        context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens,
-                                                       attn_func=self.attn_func)  # (batch_size, hidden_size (*2))
-        curr_attn_vector = self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)) # the thing to feed in input feeding
+        context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens,
+                                                       attn_func=self.attn_func))  # (batch_size, hidden_size (*2))
+        curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
         curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
         curr_ll = F.log_softmax(curr_logits, dim=-1)  # transform logits into log-likelihoods
         curr_score, prd_token = torch.max(curr_ll, dim=-1)  # (batch_size,) the decoded tokens
@@ -250,7 +250,7 @@ class LSTMSeq2seq(nn.Module):
             vector = torch.cat((vector, curr_attn_vector), dim=-1) # input feeding
             h, c = self.decoder_lstm_cell(vector, (h, c))
             context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func))
-            curr_attn_vector = self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)) # the thing to feed in input feeding
+            curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
             curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
             curr_ll = F.log_softmax(curr_logits, dim=-1)  # transform logits into log-likelihoods
             curr_score, prd_token = torch.max(curr_ll, dim=-1)
@@ -292,8 +292,8 @@ class LSTMSeq2seq(nn.Module):
         vector = self.trg_embedding(start_token) # (batch_size, embedding_size)
         vector = torch.cat((vector, vector), dim=-1) # input feeding at first step
         h, c = self.decoder_lstm_cell(vector, final_state)
-        context_vector = LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func) # (batch_size, hidden_size (*2))
-        curr_attn_vector = self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)) # the thing to feed in input feeding
+        context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
+        curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
         curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
         curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
         best_scores, best_score_ids = torch.topk(curr_ll, beam_size, dim=-1) # (batch_size, beam_size)
@@ -324,9 +324,9 @@ class LSTMSeq2seq(nn.Module):
             vectors = torch.cat((vectors, curr_attn_vector), dim=-1) # input feeding again...
             h, c = self.decoder_lstm_cell(vectors, (h, c))
 
-            context_vector = LSTMSeq2seq.compute_attention(h, src_states_tmp, src_lens, attn_func=self.attn_func)
+            context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states_tmp, src_lens, attn_func=self.attn_func))
 
-            curr_attn_vector = self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)) # the thing to feed in input feeding
+            curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
             curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
             curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
             scores = (curr_ll + survived_score.view(-1, 1)).view(-1, self.trg_vocab_size*survived_size) # (batch_size, survived_size * vocab_size)
