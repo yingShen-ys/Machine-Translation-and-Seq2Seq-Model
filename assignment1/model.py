@@ -322,7 +322,7 @@ class LSTMSeq2seq(nn.Module):
             vectors = self.trg_embedding(survived_id.view(-1, survived_size)) # (batch_size, survived_size) -> (batch_size, survived_size, embedding_size)
             vectors = vectors.view(-1, self.embedding_size) # (batch_size, survived_size, embedding_size) -> (batch_size * survived_size, embedding_size)
             print(vectors.shape)
-            print(curr_attn_vector.shape)
+            input(curr_attn_vector.shape)
             vectors = torch.cat((vectors, curr_attn_vector), dim=-1) # input feeding again...
             h, c = self.decoder_lstm_cell(vectors, (h, c))
 
@@ -541,7 +541,7 @@ class ScaledAttnLSTMSeq2seq(LSTMSeq2seq):
     '''
 
     def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
-        super(OLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
+        super(ScaledAttnLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
         self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
         self.attn_scaler = nn.Linear(2 * self.state_size // self.num_layers, 1)
         self.attn_func = self.scaled_dot_attn
@@ -571,7 +571,7 @@ class RecurrentAttnLSTMSeq2seq(LSTMSeq2seq):
     '''
 
     def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
-        super(OLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
+        super(RecurrentLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
         self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
         self.attention_lstm = nn.LSTM(self.state_size // self.num_layers, self.state_size // self.num_layers, bidirectional=True, batch_first=True)
         self.attn_scaler = nn.Linear(2 * self.state_size // self.num_layers, 1)
