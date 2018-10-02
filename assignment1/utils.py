@@ -10,17 +10,17 @@ class LabelSmoothedCrossEntropy(nn.Module):
         - smoothing_coeff: the smoothing coefficient between target dist and uniform
     
     Input:
-        - pred: (N, C)
-        - target: (N, )
+        - pred: (N, C, *)
+        - target: (N, * )
     '''
     def __init__(self, smoothing_coeff):
         super(LabelSmoothedCrossEntropy, self).__init__()
         self.smoothing_coeff = smoothing_coeff
-        self.ce = nn.CrossEntropyLoss()
+        self.ce = nn.CrossEntropyLoss(reduction='none')
 
     def forward(self, pred, target):
         loss_1 = self.ce(pred, target)
-        loss_2 = pred.log().sum(-1) / pred.size(-1)
+        loss_2 = pred.log().sum(1) / pred.size(1)
         loss = loss_1 * self.smoothing_coeff + loss_2 * (1 - self.smoothing_coeff)
         return loss
 

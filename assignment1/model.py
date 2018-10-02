@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, orthogonal_
 from collections import namedtuple
 # from torch.autograd import Variable
-from utils import batch_iter
+from utils import batch_iter, LabelSmoothedCrossEntropy
 import time
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
@@ -116,7 +116,7 @@ class LSTMSeq2seq(nn.Module):
          - rdrop: whether there is a recurrent dropout on the encoder side
     '''
 
-    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3):
+    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
         super(LSTMSeq2seq, self).__init__()
         self.state_size = hidden_size * 2 if bidirectional else hidden_size * 1
         self.vocab = vocab
@@ -131,6 +131,12 @@ class LSTMSeq2seq(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.attn_func = dot_attn
         self.enc_final_to_dec_init = nn.Linear(hidden_size * 2, hidden_size * 2)
+        self.label_smooth = label_smooth
+        self.num_layers = num_layers
+        if label_smooth < 1.0:
+            self.ce_loss = LabelSmoothedCrossEntropy(label_smooth)
+        else:
+            self.ce_loss = nn.CrossEntropyLoss(reduction='none')
 
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
@@ -188,7 +194,7 @@ class LSTMSeq2seq(nn.Module):
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
         curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
-        neg_log_likelihoods = F.cross_entropy(curr_logits, trg_tokens[..., 1], reduction='none') # (batch_size,)
+        neg_log_likelihoods = self.ce_loss(curr_logits, trg_tokens[..., 1]) # (batch_size,)
         nll.append(neg_log_likelihoods)
         _, prd_token = torch.max(curr_logits, dim=-1) # (batch_size,) the decoded tokens
         if np.random.uniform() < teacher_forcing:
@@ -204,7 +210,7 @@ class LSTMSeq2seq(nn.Module):
             context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func))
             curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
             curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
-            neg_log_likelihoods = F.cross_entropy(curr_logits, trg_tokens[..., t+2], reduction='none') # (batch_size,)
+            neg_log_likelihoods = self.ce_loss(curr_logits, trg_tokens[..., t+2]) # (batch_size,)
             nll.append(neg_log_likelihoods)
             _, prd_token = torch.max(curr_logits, dim=-1)
             if np.random.uniform() < teacher_forcing:
@@ -488,9 +494,9 @@ class OLSTMSeq2seq(LSTMSeq2seq):
          - rdrop: whether there is a recurrent dropout on the encoder side
     '''
 
-    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3):
+    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
         super(OLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
-        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=1, batch_first=True)
+        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
 
 class MultiAttnLSTMSeq2seq(LSTMSeq2seq):
     '''
@@ -504,9 +510,9 @@ class MultiAttnLSTMSeq2seq(LSTMSeq2seq):
          - rdrop: whether there is a recurrent dropout on the encoder side
     '''
 
-    def __init__(self, embedding_size, hidden_size, vocab, kvq_dim=None, attn_size=5, bidirectional=True, dropout_rate=0.3):
+    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2, kvq_dim=None):
         super(MultiAttnLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
-        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=1, batch_first=True)
+        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
         if kvq_dim is None:
             kvq_dim = hidden_size*2 if bidirectional else hidden_size
         
