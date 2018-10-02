@@ -2,7 +2,27 @@ import math
 from typing import List
 
 import numpy as np
+import torch.nn as nn
 
+class LabelSmoothedCrossEntropy(nn.Module):
+    '''
+    Args:
+        - smoothing_coeff: the smoothing coefficient between target dist and uniform
+    
+    Input:
+        - pred: (N, C)
+        - target: (N, )
+    '''
+    def __init__(self, smoothing_coeff):
+        super(LabelSmoothedCrossEntropy, self).__init__()
+        self.smoothing_coeff = smoothing_coeff
+        self.ce = nn.CrossEntropyLoss()
+
+    def forward(self, pred, target):
+        loss_1 = self.ce(pred, target)
+        loss_2 = pred.log().sum(-1) / pred.size(-1)
+        loss = loss_1 * self.smoothing_coeff + loss_2 * (1 - self.smoothing_coeff)
+        return loss
 
 def input_transpose(sents, pad_token):
     """
