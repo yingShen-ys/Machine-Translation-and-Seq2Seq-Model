@@ -4,12 +4,57 @@ from typing import List
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.init import xavier_uniform_, orthogonal_
+
+
+def lstm_init_(lstm_unit):
+    '''
+    LSTM initialization:
+
+    1) initialize all biases to 0 except forget gate biases
+    (since PyTorch has duplicate biases at every LSTM, each forget gate bias
+    is initialized to 1/2 instead).
+
+    2) initialized the hidden2hidden matrix by orthogonal
+
+    3) initialized the input2hidden matrix by xavier_uniform
+    '''
+    for l in range(lstm_unit.num_layers):
+        xavier_uniform_(getattr(lstm_unit, "weight_ih_l{}".format(l)).data)
+        orthogonal_(getattr(lstm_unit, "weight_hh_l{}".format(l)).data)
+        xavier_uniform_(
+            getattr(lstm_unit, "weight_ih_l{}{}".format(l, '_reverse')).data)
+        orthogonal_(
+            getattr(lstm_unit, "weight_hh_l{}{}".format(l, '_reverse')).data)
+        getattr(lstm_unit, "bias_ih_l{}".format(l)).data.fill_(0)
+        getattr(lstm_unit, "bias_ih_l{}".format(
+            l)).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+        getattr(lstm_unit, "bias_ih_l{}{}".format(l, '_reverse')).data.fill_(0)
+        getattr(lstm_unit, "bias_ih_l{}{}".format(l, '_reverse')
+                ).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+        getattr(lstm_unit, "bias_hh_l{}".format(l)).data.fill_(0)
+        getattr(lstm_unit, "bias_hh_l{}".format(
+            l)).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+        getattr(lstm_unit, "bias_hh_l{}{}".format(l, '_reverse')).data.fill_(0)
+        getattr(lstm_unit, "bias_hh_l{}{}".format(l, '_reverse')
+                ).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+
+def lstm_cell_init_(lstm_cell):
+    '''
+    Initialize the LSTMCell parameters in a slightly better way
+    '''
+    xavier_uniform_(lstm_cell.weight_ih.data)
+    orthogonal_(lstm_cell.weight_hh.data)
+    lstm_cell.bias_ih.data.fill_(0)
+    lstm_cell.bias_hh.data.fill_(0)
+    lstm_cell.bias_ih.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
+    lstm_cell.bias_hh.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
 
 class LabelSmoothedCrossEntropy(nn.Module):
     '''
     Args:
         - smoothing_coeff: the smoothing coefficient between target dist and uniform
-    
+
     Input:
         - pred: (N, C, *)
         - target: (N, * )
@@ -20,9 +65,9 @@ class LabelSmoothedCrossEntropy(nn.Module):
         self.ce = nn.CrossEntropyLoss(reduction='none')
 
     def forward(self, pred, target):
-        loss_1 = self.ce(pred, target)
-        loss_2 = - F.log_softmax(pred).sum(1) / pred.size(1)
-        loss = loss_1 * self.smoothing_coeff + loss_2 * (1 - self.smoothing_coeff)
+        crossent_with_target = self.ce(pred, target)
+        crossent_with_uniform = - F.log_softmax(pred).sum(1) / pred.size(1)
+        loss = crossent_with_target * self.smoothing_coeff + crossent_with_uniform * (1 - self.smoothing_coeff)
         return loss
 
 def input_transpose(sents, pad_token):
