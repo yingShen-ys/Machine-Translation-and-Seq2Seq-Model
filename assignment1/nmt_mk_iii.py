@@ -127,8 +127,8 @@ def train(args: Dict[str, str]):
     model = LSTMSeq2seq(embedding_size=int(args['--embed-size']),
                         hidden_size=int(args['--hidden-size']),
                         dropout_rate=float(args['--dropout']),
-                        vocab=vocab, label_smooth=float(args['--ls-ratge']),
-                        num_layers=int(args['--num-layers']))
+                        vocab=vocab, label_smooth=float(args['--ls-rate']),
+                        num_layers=int(args['--encoder-layers']))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']))
