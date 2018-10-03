@@ -17,6 +17,7 @@ python nmt_mk_iii.py \
     train \
     --model-type original_lstm \
     --cuda \
+    --seed 233 \
     --vocab ${vocab} \
     --train-src ${train_src} \
     --train-tgt ${train_tgt} \
@@ -34,6 +35,7 @@ python nmt_mk_iii.py \
 
 python nmt_mk_iii.py \
     decode \
+    --seed 233 \
     --beam-size 5 \
     --max-decoding-time-step 100 \
     ${vocab} \
