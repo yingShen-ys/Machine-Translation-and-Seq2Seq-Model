@@ -331,7 +331,7 @@ def decode(args: Dict[str, str]):
     model = LSTMSeq2seq.load(args['MODEL_PATH'])
 
     vocab = pickle.load(open(args['VOCAB_PATH'], 'rb'))
-    hypotheses = greedy_search(model, test_data_src,
+    hypotheses = beam_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
                              max_decoding_time_step=int(args['--max-decoding-time-step']),
                              vocab=vocab, cuda=args['--cuda'])
