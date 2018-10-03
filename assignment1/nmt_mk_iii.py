@@ -52,9 +52,9 @@ from docopt import docopt
 from tqdm import tqdm
 from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunction
 
-from utils import read_corpus, batch_iter, lstm_init_
+from utils import read_corpus, batch_iter, lstm_init_, lstm_cell_init_
 from vocab import Vocab, VocabEntry
-from model import MultiAttnLSTMSeq2seq, OLSTMSeq2seq, LSTMSeq2seq, lstm_cell_init_
+from model import MultiAttnLSTMSeq2seq, OLSTMSeq2seq, LSTMSeq2seq, ScaledAttnLSTMSeq2seq, RecurrentAttnLSTMSeq2seq
 from torch.nn.init import uniform_
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
@@ -120,6 +120,10 @@ def train(args: Dict[str, str]):
         LSTMSeq2seq = OLSTMSeq2seq
     elif args['--model-type'] == 'multi_attn_lstm':
         LSTMSeq2seq = MultiAttnLSTMSeq2seq
+    elif args['--model-type'] == 'scaled_attn':
+        LSTMSeq2seq = ScaledAttnLSTMSeq2seq
+    elif args['--model-type'] == 'rc_attn':
+        LSTMSeq2seq = RecurrentAttnLSTMSeq2seq
     else:
         print("Specified model is not implemented!", file=sys.stderr)
         exit(0)
@@ -154,6 +158,7 @@ def train(args: Dict[str, str]):
         model.cuda()
 
     init_tf_rate = 1.0
+    tf_rate = init_tf_rate
     decay_steps = len(train_data) * 3
     min_tf_rate = 0.5
     while True:
@@ -173,7 +178,7 @@ def train(args: Dict[str, str]):
             tgt_sents = torch.LongTensor(tgt_sents)
 
             train_iter += 1
-            tf_rate = init_tf_rate - (init_tf_rate - min_tf_rate) * min(train_iter / decay_steps, 1)
+            # tf_rate = init_tf_rate - (init_tf_rate - min_tf_rate) * min(train_iter / decay_steps, 1)
 
             # (batch_size,)
             loss = -model(src_sents, src_lens, tgt_sents, trg_lens, teacher_forcing=tf_rate)
@@ -326,7 +331,7 @@ def decode(args: Dict[str, str]):
     model = LSTMSeq2seq.load(args['MODEL_PATH'])
 
     vocab = pickle.load(open(args['VOCAB_PATH'], 'rb'))
-    hypotheses = beam_search(model, test_data_src,
+    hypotheses = greedy_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
                              max_decoding_time_step=int(args['--max-decoding-time-step']),
                              vocab=vocab, cuda=args['--cuda'])
