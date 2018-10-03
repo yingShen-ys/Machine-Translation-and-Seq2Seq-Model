@@ -355,6 +355,9 @@ def main():
     # also want to seed the RNG of tensorflow, pytorch, dynet, etc.
     seed = int(args['--seed'])
     np.random.seed(seed * 13 // 7)
+    torch.manual_seed(seed * 13 // 7)
+    if args['--cuda']:
+        torch.cuda.manual_seed_all(seed * 13 // 7)
 
     if args['train']:
         train(args)
