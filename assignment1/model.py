@@ -93,7 +93,6 @@ class LSTM(nn.Module):
             C = torch.cat((C, rev_C), dim=-1)
         return H, C
 
-
 class LSTMSeq2seq(nn.Module):
     '''
     An LSTM based seq2seq model with language as input.
@@ -447,7 +446,7 @@ class LSTMSeq2seq(nn.Module):
         # create masks, assuming padding is AT THE END
         idx = torch.arange(0, src_states.size(1), out=curr_state.new(1).long()).unsqueeze(0)
         mask = (idx < src_lens.unsqueeze(1)).float() # make use of the automatic expansion in comparison. </s> token should receive 0 score
-        mask[:, 0] = 0 # <s> tokens should receive 0 score
+        # mask[:, 0] = 0 # <s> tokens should receive 0 score
 
         # manual softmax with masking
         offset, _ = torch.max(attn_scores, dim=1, keepdim=True) # (batch_size, 1, attn_size)
