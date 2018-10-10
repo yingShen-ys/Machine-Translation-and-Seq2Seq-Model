@@ -348,9 +348,11 @@ class LSTMSeq2seq(nn.Module):
             survived_score = best_beam_scores.view(-1)[~end_id]
             if finished_num > 0: # add finished sentence
                 finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id] / float(t)))
+                # finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id]))
                 finished_pos.extend([(t, end_id.nonzero().view(-1)[i].item()) for i in range(0, finished_num)])
             elif t == max_decoding_time_step-1:
                 finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1) / float(t)))
+                # finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)))
                 finished_pos.extend([(t, i) for i in range(0, beam_size)])
 
             if survived_size == 0:
