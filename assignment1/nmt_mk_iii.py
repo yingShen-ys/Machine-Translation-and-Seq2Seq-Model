@@ -178,7 +178,7 @@ def train(args: Dict[str, str]):
             tgt_sents = torch.LongTensor(tgt_sents)
 
             train_iter += 1
-            # tf_rate = init_tf_rate - (init_tf_rate - min_tf_rate) * min(train_iter / decay_steps, 1)
+            tf_rate = init_tf_rate - (init_tf_rate - min_tf_rate) * min(train_iter / decay_steps, 1)
 
             # (batch_size,)
             loss = -model(src_sents, src_lens, tgt_sents, trg_lens, teacher_forcing=tf_rate)
