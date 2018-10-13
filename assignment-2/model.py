@@ -29,70 +29,6 @@ def pad(idx):
 def dot_attn(a, b): # computes (batch_size, hidden_size) X (batch_size, max_seq_len, hidden_size) >> (batch_size, max_seq_len, 1)
     return torch.einsum('bi,bji->bj', (a, b)).unsqueeze(-1)
 
-class LSTM(nn.Module):
-    '''
-    An LSTM with recurrent dropout.
-    Refer to "A Theoretically Grounded Applicaiton of Dropout in RNN" Gal et al. for details.
-    Currently it is fairly slow. May be a good place to start exercising with CUPY for writing
-    custom kernels though. TODO: support packedsequence as input.
-
-    Args:
-         - input_size: the size of input vectors
-         - hidden_size: size of the hidden states h and c
-         - rdrop: recurrent dropout rate
-    '''
-
-    def __init__(self, input_size, hidden_size, rdrop=0, bidirectional=False, bias=True):
-        super(LSTM, self).__init__()
-        self.LSTMCell = nn.LSTMCell(input_size, hidden_size, bias=bias)
-        lstm_cell_init_(self.LSTMCell)
-        if bidirectional:
-            self.LSTMCell_rev = nn.LSTMCell(input_size, hidden_size, bias=bias)
-            lstm_cell_init_(self.LSTMCell_rev)
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.rdrop = rdrop
-        self.bidirectional = bidirectional
-        self.bias = bias
-
-    def lstm_traverse(self, lstm, x, hc=None):
-        # collect some info from input and construct h, c and dropout_mask
-        batch_size = x.size(0)
-        seq_len = x.size(1)
-        if self.rdrop and self.training:
-            h_dropout_mask = dist.Bernoulli(probs=(1-self.rdrop) * x.new_ones(batch_size, self.hidden_size)).sample()
-            x_dropout_mask = dist.Bernoulli(probs=(1-self.rdrop) * x.new_ones(batch_size, self.input_size)).sample()
-
-        if self.rdrop and self.training:
-            x_tilde = x[:, 0, :] * x_dropout_mask / self.rdrop
-        else:
-            x_tilde = x[:, 0, :]
-        hc = lstm(x_tilde, hc) # first time step
-
-        H = [hc[0]]
-        C = [hc[1]]
-        for t in range(1, seq_len):
-            if self.rdrop and self.training:
-                h_tilde = hc[0] * h_dropout_mask / self.rdrop
-                x_tilde = x[:, t, :] * x_dropout_mask / self.rdrop
-            else:
-                h_tilde = hc[0]
-                x_tilde = x[:, t, :]
-            hc = lstm(x_tilde, (h_tilde, hc[1]))
-            H.append(hc[0])
-            C.append(hc[1])
-        H = torch.stack(H, dim=1)
-        C = torch.stack(C, dim=1)
-        return H, C
-
-    def forward(self, x, hc=None):
-        H, C = self.lstm_traverse(self.LSTMCell, x, hc)
-        if self.bidirectional:
-            rev_H, rev_C = self.lstm_traverse(self.LSTMCell_rev, x, hc)
-            H = torch.cat((H, rev_H), dim=-1)
-            C = torch.cat((C, rev_C), dim=-1)
-        return H, C
-
 class LSTMSeq2seq(nn.Module):
     '''
     An LSTM based seq2seq model with language as input.
@@ -105,7 +41,7 @@ class LSTMSeq2seq(nn.Module):
          - rdrop: whether there is a recurrent dropout on the encoder side
     '''
 
-    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
+    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=0.9, num_layers=2):
         super(LSTMSeq2seq, self).__init__()
         self.state_size = (hidden_size * 2 if bidirectional else hidden_size * 1) * num_layers
         self.vocab = vocab
@@ -113,7 +49,7 @@ class LSTMSeq2seq(nn.Module):
         self.trg_vocab_size = len(vocab.tgt)
         self.src_embedding = nn.Embedding(self.src_vocab_size, embedding_size)
         self.trg_embedding = nn.Embedding(self.trg_vocab_size, embedding_size)
-        self.encoder_lstm = LSTM(embedding_size, hidden_size, rdrop=dropout_rate, bidirectional=bidirectional)
+        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
         self.decoder_lstm_cell = nn.LSTMCell(embedding_size + self.state_size // num_layers, self.state_size // num_layers)
         self.decoder_hidden_layer = nn.Linear(2 * self.state_size // num_layers, self.state_size // num_layers)
         self.decoder_output_layer = nn.Linear(self.state_size // num_layers, self.trg_vocab_size)
@@ -333,7 +269,7 @@ class LSTMSeq2seq(nn.Module):
             best_score_ids = best_score_ids - bk_pointer * self.trg_vocab_size
             bk_pointer_o = bk_pointer.view(-1)
             if survived_pos is not None: # recalculate bk_pointer
-                bk_pointer = survived_pos[b k_pointer]
+                bk_pointer = survived_pos[bk_pointer]
             # append decoded beam
             bk_pointers.append(bk_pointer)
             decoded_beam_idx.append(best_score_ids)
@@ -474,108 +410,3 @@ class LSTMSeq2seq(nn.Module):
         """
         model = torch.load(model_path)
         return model
-
-class OLSTMSeq2seq(LSTMSeq2seq):
-    '''
-    An LSTM based seq2seq model with language as input. LSTM is based on original PyTorch implementation.
-
-    Args:
-         - vocab: the vocab file from vocab.py
-         - embedding_size: the size of the embedding
-         - hidden_size: the size of the LSTM states, applies to encoder
-         - bidirectional: whether or not the encoder is bidirectional
-         - rdrop: whether there is a recurrent dropout on the encoder side
-    '''
-
-    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
-        super(OLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
-        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
-
-class MultiAttnLSTMSeq2seq(LSTMSeq2seq):
-    '''
-    An LSTM based seq2seq model with language as input, with a multi-headed attention and key-value-query attention architecture
-
-    Args:
-         - vocab: the vocab file from vocab.py
-         - embedding_size: the size of the embedding
-         - hidden_size: the size of the LSTM states, applies to encoder
-         - bidirectional: whether or not the encoder is bidirectional
-         - rdrop: whether there is a recurrent dropout on the encoder side
-    '''
-
-    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2, kvq_dim=None):
-        super(MultiAttnLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
-        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
-        if kvq_dim is None:
-            kvq_dim = self.state_size // self.num_layers
-        
-        self.attn_func = self.kvq_multi_attn
-
-        self.src_states_to_value = nn.Linear(self.state_size // self.num_layers, kvq_dim)
-        self.src_states_to_key = nn.Linear(self.state_size // self.num_layers, kvq_dim)
-        self.trg_state_to_query = nn.Linear(self.state_size // self.num_layers, kvq_dim)
-        self.key_query_to_multi = nn.Linear(kvq_dim * 2, attn_size)
-        self.decoder_output_layer = nn.Linear(kvq_dim * attn_size + self.state_size // self.num_layers, self.trg_vocab_size)
-
-    def kvq_multi_attn(self, curr_state, src_states): # (batch_size, hidden_state (*2)), (batch_size, max_seq_len, kvq_dim)
-        query_vector = self.trg_state_to_query(curr_state) # (batch_size, hidden_state (*2))
-        expanded_query_vectors = query_vector.unsqueeze(1).expand_as(src_states) # (batch_size, max_seq_len, kvq_dim)
-        key_vectors = self.src_states_to_key(src_states) # (batch_size, max_seq_len, kvq_dim)
-        attn_scores = self.key_query_to_multi(torch.cat((expanded_query_vectors, key_vectors), dim=-1)) # (b, m, attn_size)
-        return attn_scores
-
-class ScaledAttnLSTMSeq2seq(LSTMSeq2seq):
-    '''
-    An LSTM based seq2seq model with language as input. LSTM is based on original PyTorch implementation.
-    The attention function is a customized scaled dot product attention
-
-    Args:
-         - vocab: the vocab file from vocab.py
-         - embedding_size: the size of the embedding
-         - hidden_size: the size of the LSTM states, applies to encoder
-         - bidirectional: whether or not the encoder is bidirectional
-         - rdrop: whether there is a recurrent dropout on the encoder side
-    '''
-
-    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
-        super(ScaledAttnLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
-        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
-        self.attn_scaler = nn.Linear(2 * self.state_size // self.num_layers, 1)
-        self.attn_func = self.scaled_dot_attn
-
-    def scaled_dot_attn(self, a, b):
-        '''
-        Scaled dot attn where the scale is not sqrt of size, but size ** (1-eps(a, b))
-        '''
-        expanded_a = a.unsqueeze(1).expand_as(b) # (batch_size, max_src_len, *)
-        epsilon = self.attn_scaler(torch.cat((expanded_a, b), dim=-1)) # (batch_size, max_src_len, 1)
-        dot_attn_scores = dot_attn(a, b)
-        scales = torch.exp((1 - epsilon) * math.log(b.size(-1))) # size ** (1-eps) = exp( (1-eps) * log(size) )
-        scaled_dot_attn = dot_attn_scores / scales
-        return scaled_dot_attn
-
-class RecurrentAttnLSTMSeq2seq(LSTMSeq2seq):
-    '''
-    An LSTM based seq2seq model with language as input. LSTM is based on original PyTorch implementation.
-    The attention is based on a bidirectional LSTM to make the attention generation more "positional"
-
-    Args:
-         - vocab: the vocab file from vocab.py
-         - embedding_size: the size of the embedding
-         - hidden_size: the size of the LSTM states, applies to encoder
-         - bidirectional: whether or not the encoder is bidirectional
-         - rdrop: whether there is a recurrent dropout on the encoder side
-    '''
-
-    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=1.0, num_layers=2):
-        super(RecurrentLSTMSeq2seq, self).__init__(embedding_size, hidden_size, vocab, bidirectional, dropout_rate)
-        self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
-        self.attention_lstm = nn.LSTM(self.state_size // self.num_layers, self.state_size // self.num_layers, bidirectional=True, batch_first=True)
-        self.attn_states_to_scores = nn.Linear(self.state_size // self.num_layers, 1)
-
-    def recurrent_attn(self, a, b):
-        h = a # (batch_size, *)
-        c = torch.tanh(a)
-        attention_states, _ = self.attention_lstm(b, (h, c))
-        attn_scores = self.attn_states_to_scores(attention_states)
-        return attn_scores
