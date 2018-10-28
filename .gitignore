@@ -8,6 +8,7 @@ assignment-2/data/
 assignment-2/data.zip
 assignment-2/wikis/
 assignment-2/wikis.zip
+assignment-2/word_emd/*_embed.txt
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
