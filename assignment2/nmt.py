@@ -36,6 +36,8 @@ Options:
     --valid-niter=<int>                     perform validation after how many iterations [default: 2000]
     --dropout=<float>                       dropout [default: 0.2]
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
+    --src-embedding-path=<str>              path to pretrained source embeddings [default: None]
+    --trg-embedding-path=<str>              path to pretrained target embeddings [default: None]
 """
 
 import math
@@ -66,7 +68,7 @@ def print_log(content, file=sys.stderr):
     original_print(content)
     original_print(content, file=file)
 
-print = print_log
+# print = print_log
 
 def pad(idx):
     UNK_IDX = 0 # this is built-in into the vocab.py
@@ -119,6 +121,8 @@ def train(args: Dict[str, str]):
                         dropout_rate=float(args['--dropout']),
                         vocab=vocab, label_smooth=float(args['--ls-rate']),
                         num_layers=int(args['--encoder-layers']))
+    
+    apply_pretrained_embeddings(model, args['--src-embedding-path'], args['--trg-embedding-path'])
 
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
@@ -268,6 +272,54 @@ def train(args: Dict[str, str]):
                     print('reached maximum number of epochs!', file=sys.stderr)
                     exit(0)
 
+
+def load_embedding(embedding_path):
+    embedding_dict = dict()
+    with open(embedding_path, 'r') as f:
+        for line in f:
+            line = line.strip().split()
+            if len(line) == 2:
+                vector_size = int(line[-1])
+                continue
+            vector = np.array(list(map(float, line[-vector_size:])))
+            word = ''.join(line[:-vector_size])
+            embedding_dict[word] = vector
+    return embedding_dict
+
+def apply_pretrained_embeddings(model, src_embedding_path, trg_embedding_path):
+    vocab = model.vocab
+
+    if src_embedding_path is not None:
+        src_embedding_dict = load_embedding(src_embedding_path)
+        src_loaded_counts = 0
+        print("Processing pretrained word embeddings for source language")
+        model.src_embedding.weight.requires_grad = False
+        for word in tqdm(list(vocab.src.word2id.keys())):
+            if word not in src_embedding_dict:
+                continue
+            word_idx = vocab.src.word2id[word]
+            model.src_embedding.weight[word_idx, :] = torch.from_numpy(src_embedding_dict[word]).float()
+            src_loaded_counts += 1
+        model.src_embedding.weight.requires_grad = True
+        print(f"{src_loaded_counts} words in source language is found in the pretrained embeddings.")
+    else:
+        print(f"No pretrained embeddings specified for source language")
+
+    if trg_embedding_path is not None:
+        trg_embedding_dict = load_embedding(trg_embedding_path)
+        trg_loaded_counts = 0
+        print("Processing pretrained word embeddings for target language")
+        model.trg_embedding.weight.requires_grad = False
+        for word in tqdm(list(vocab.tgt.word2id.keys())):
+            if word not in trg_embedding_dict:
+                continue
+            word_idx = vocab.tgt.word2id[word]
+            model.trg_embedding.weight[word_idx, :] = torch.from_numpy(trg_embedding_dict[word]).float()
+            trg_loaded_counts += 1
+        print(f"{trg_loaded_counts} words in target language is found in the pretrained embeddings.")
+        model.trg_embedding.weight.requires_grad = True
+    else:
+        print(f"No pretrained embeddings specified for target language")
 
 def beam_search(model: object, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int, vocab: Vocab, cuda: str) -> List[List[Hypothesis]]:
     was_training = model.training
