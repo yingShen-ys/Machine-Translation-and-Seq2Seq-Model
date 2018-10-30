@@ -9,6 +9,9 @@ assignment-2/data.zip
 assignment-2/wikis/
 assignment-2/wikis.zip
 assignment-2/word_emb/*_embed.txt
+
+.vscode/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
