@@ -11,7 +11,6 @@ import torch.distributions as dist
 import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, orthogonal_
 from collections import namedtuple
-# from torch.autograd import Variable
 from utils import batch_iter, LabelSmoothedCrossEntropy, lstm_cell_init_, lstm_init_
 import time
 
@@ -68,20 +67,22 @@ class LSTMSeq2seq(nn.Module):
         self.bidirectional = bidirectional
         self.rdrop = dropout_rate
 
-    def forward(self, src_tokens, src_lens, trg_tokens, trg_lens, teacher_forcing=0.5):
-        src_states, final_states = self.encode(src_tokens, src_lens)
+    def forward(self, src_tokens, src_lens, trg_tokens, trg_lens, teacher_forcing=0.5, feed_embedding=False):
+        src_states, final_states = self.encode(src_tokens, src_lens, feed_embedding=feed_embedding)
         ll = self.decode(src_states, final_states, src_lens, trg_tokens, trg_lens, teacher_forcing=teacher_forcing)
         return ll
 
-    def encode(self, src_tokens, src_lens):
+    def encode(self, src_tokens, src_lens, feed_embedding):
         '''
         Encode source sentences into vector representations.
 
         Args:
              - src_tokens: a torch tensor of a batch of tokens, with shape (batch_size, max_seq_len) >> LongTensor
+                           if feed_embedding is True, then it is already an embedding vector
              - src_lens: a torch tensor of the sentence lengths in the batch, with shape (batch_size,) >> LongTensor
         '''
-        src_vectors = self.src_embedding(src_tokens) # (batch_size, max_seq_len, embedding_size)
+        if not feed_embedding:
+            src_vectors = self.src_embedding(src_tokens) # (batch_size, max_seq_len, embedding_size)
         packed_src_vectors = torch.nn.utils.rnn.pack_padded_sequence(src_vectors, src_lens, batch_first=True)
         packed_src_states, final_states = self.encoder_lstm(packed_src_vectors) # both (batch_size, max_seq_len, hidden_size (*2))
 
@@ -153,7 +154,7 @@ class LSTMSeq2seq(nn.Module):
 
         return torch.sum(masked_log_likelihoods) # seems the training code assumes the log-likelihoods are summed per word
 
-    def greedy_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True):
+    def greedy_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True, feed_embedding=False):
         '''
         Performs beam search decoding for testing the model. Currently just a fake method and only uses argmax decoding.
         '''
@@ -161,7 +162,7 @@ class LSTMSeq2seq(nn.Module):
         decoded_idx = []
         scores = 0
     
-        src_states, final_state = self.encode(src_sent, src_lens)
+        src_states, final_state = self.encode(src_sent, src_lens, feed_embedding=feed_embedding)
         start_token = src_sent.new_ones((1,)).long() * START_TOKEN_IDX  # (batch_size,) should be </s>
         vector = self.trg_embedding(start_token)  # (batch_size, embedding_size)
         vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size//self.num_layers)), dim=-1) # input feeding at first step: no previous attentional vector
@@ -196,7 +197,7 @@ class LSTMSeq2seq(nn.Module):
         self.training = True  # turn training back on
         return [greedy_hyp] * beam_size
 
-    def beam_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True):
+    def beam_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True, feed_embedding=False):
         """
         Given a single source sentence, perform beam search
 
@@ -217,7 +218,7 @@ class LSTMSeq2seq(nn.Module):
         decoded_beam_idx = []
         bk_pointers = [[-1]]
 
-        src_states, final_state = self.encode(src_sent, src_lens) # (1, src_lens, hidden)
+        src_states, final_state = self.encode(src_sent, src_lens, feed_embedding=feed_embedding) # (1, src_lens, hidden)
 
         # decode start token
         start_token = src_sent.new_ones((1,)).long() * START_TOKEN_IDX # (batch_size,) should be </s>
@@ -322,7 +323,7 @@ class LSTMSeq2seq(nn.Module):
         self.training = True # turn training back on
         return beam_hyps
 
-    def evaluate_ppl(self, dev_data, batch_size, cuda=True):
+    def evaluate_ppl(self, dev_data, batch_size, cuda=True, feed_embedding=False):
         """
         Evaluate perplexity on dev sentences
 
@@ -356,7 +357,7 @@ class LSTMSeq2seq(nn.Module):
 
             src_sents = torch.LongTensor(src_sents)
             tgt_sents = torch.LongTensor(tgt_sents)
-            loss = -self.forward(src_sents, src_lens, tgt_sents, trg_lens).sum()
+            loss = -self.forward(src_sents, src_lens, tgt_sents, trg_lens, feed_embedding=feed_embedding).sum()
 
             loss = loss.item()
             cum_loss += loss
