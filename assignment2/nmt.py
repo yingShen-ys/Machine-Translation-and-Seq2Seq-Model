@@ -37,7 +37,7 @@ Options:
     --dropout=<float>                       dropout [default: 0.2]
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
     --src-embedding-path=<str>              path to pretrained source embeddings [default: None]
-    --trg-embedding-path=<str>              path to pretrained target embeddings [default: None]
+    --tgt-embedding-path=<str>              path to pretrained target embeddings [default: None]
 """
 
 import math
@@ -68,7 +68,7 @@ def print_log(content, file=sys.stderr):
     original_print(content)
     original_print(content, file=file)
 
-# print = print_log
+print = print_log
 
 def pad(idx):
     UNK_IDX = 0 # this is built-in into the vocab.py
@@ -122,7 +122,7 @@ def train(args: Dict[str, str]):
                         vocab=vocab, label_smooth=float(args['--ls-rate']),
                         num_layers=int(args['--encoder-layers']))
     
-    apply_pretrained_embeddings(model, args['--src-embedding-path'], args['--trg-embedding-path'])
+    apply_pretrained_embeddings(model, args['--src-embedding-path'], args['--tgt-embedding-path'])
 
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
