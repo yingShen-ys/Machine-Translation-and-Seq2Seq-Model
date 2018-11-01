@@ -11,6 +11,7 @@ assignment-2/wikis.zip
 assignment-2/word_emb/*_embed.txt
 
 .vscode/
+*/scripts/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

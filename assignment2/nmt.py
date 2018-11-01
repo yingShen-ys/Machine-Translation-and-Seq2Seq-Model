@@ -243,7 +243,7 @@ def train(args: Dict[str, str]):
                     torch.save(model, model_save_path)
                     optimizer_state_copy = copy.deepcopy(optimizer.state_dict())
 
-                    # You may also save the optimizer's state
+                # You may also save the optimizer's state
                 elif patience < int(args['--patience']):
                     patience += 1
                     print('hit patience %d' % patience, file=sys.stderr)
@@ -289,6 +289,10 @@ def load_embedding(embedding_path):
 def apply_pretrained_embeddings(model, src_embedding_path, trg_embedding_path):
     vocab = model.vocab
 
+    if src_embedding_path == 'None':
+        src_embedding_path = None
+    if trg_embedding_path == 'None':
+        trg_embedding_path = None
     if src_embedding_path is not None:
         src_embedding_dict = load_embedding(src_embedding_path)
         src_loaded_counts = 0

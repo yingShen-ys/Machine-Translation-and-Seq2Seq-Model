@@ -3,6 +3,7 @@
 """
 Basic seq2seq model with LSTMs and attention
 """
+from pdb import set_trace
 import numpy as np
 import math
 import torch
@@ -282,14 +283,15 @@ class LSTMSeq2seq(nn.Module):
             finished_num = end_id.nonzero().view(-1).size()[0]
             survived_size = beam_size - finished_num
             survived_score = best_beam_scores.view(-1)[~end_id]
-            if finished_num > 0: # add finished sentence
-                finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id] / float(t)))
-                # finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id]))
-                finished_pos.extend([(t, end_id.nonzero().view(-1)[i].item()) for i in range(0, finished_num)])
-            elif t == max_decoding_time_step-1:
+            
+            if t == max_decoding_time_step-1:
                 finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1) / float(t)))
                 # finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)))
                 finished_pos.extend([(t, i) for i in range(0, beam_size)])
+            elif finished_num > 0: # add finished sentence
+                finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id] / float(t)))
+                # finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id]))
+                finished_pos.extend([(t, end_id.nonzero().view(-1)[i].item()) for i in range(0, finished_num)])
 
             if survived_size == 0:
                 break

@@ -6,21 +6,21 @@ auxiliary="pt"
 original_src_emb="embeddings/prefix-vector-${source}.txt"
 auxiliary_src_emb="embeddings/prefix-vector-${auxiliary}.txt"
 
-train_original_src="data/prefixed-train.en-${source}.${source}.txt"
+train_original_src="prefixed_data/prefixed-train.en-${source}.${source}.txt"
 train_original_tgt="data/train.en-${source}.en.txt"
-train_auxiliary_src="data/prefixed-train.en-${auxiliary}.${auxiliary}.txt"
+train_auxiliary_src="prefixed_data/prefixed-train.en-${auxiliary}.${auxiliary}.txt"
 train_auxiliary_tgt="data/train.en-${auxiliary}.en.txt"
 
-dev_original_src="data/prefixed-dev.en-${source}.${source}.txt"
+dev_original_src="prefixed_data/prefixed-dev.en-${source}.${source}.txt"
 dev_original_tgt="data/dev.en-${source}.en.txt"
-dev_auxiliary_src="data/prefixed-dev.en-${auxiliary}.${auxiliary}.txt"
+dev_auxiliary_src="prefixed_data/prefixed-dev.en-${auxiliary}.${auxiliary}.txt"
 dev_auxiliary_tgt="data/dev.en-${auxiliary}.en.txt"
 
 vocab="vocab/${source}${auxiliary}-en.bin"
 dev_src="combined_data/dev.${source}${auxiliary}-en.${source}${auxiliary}.txt"
 dev_tgt="combined_data/dev.${source}${auxiliary}-en.en.txt"
-test_src="combined_data/prefixed-test.en-$source.$source.txt"
-test_tgt="combined_data/test.en-$source.en.txt"
+test_src="prefixed_data/prefixed-test.en-$source.$source.txt"
+test_tgt="data/test.en-$source.en.txt"
 
 train_src="combined_data/train.${source}${auxiliary}-en.${source}${auxiliary}.txt"
 train_tgt="combined_data/train.${source}${auxiliary}-en.en.txt"
@@ -54,7 +54,7 @@ python nmt.py \
     --dev-src ${dev_src} \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir}/model.bin \
-    --valid-niter 2400 \
+    --valid-niter 1418 \
     --batch-size 64 \
     --hidden-size 512 \
     --embed-size 300 \
