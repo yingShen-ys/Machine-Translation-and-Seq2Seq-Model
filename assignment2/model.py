@@ -84,6 +84,8 @@ class LSTMSeq2seq(nn.Module):
         '''
         if not feed_embedding:
             src_vectors = self.src_embedding(src_tokens) # (batch_size, max_seq_len, embedding_size)
+        else:
+            src_vectors = src_tokens
         packed_src_vectors = torch.nn.utils.rnn.pack_padded_sequence(src_vectors, src_lens, batch_first=True)
         packed_src_states, final_states = self.encoder_lstm(packed_src_vectors) # both (batch_size, max_seq_len, hidden_size (*2))
 
@@ -157,7 +159,7 @@ class LSTMSeq2seq(nn.Module):
 
     def greedy_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True, feed_embedding=False):
         '''
-        Performs beam search decoding for testing the model. Currently just a fake method and only uses argmax decoding.
+        Performs greedy search for testing the model
         '''
         self.training = False  # turn of training
         decoded_idx = []

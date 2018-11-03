@@ -15,7 +15,7 @@ Options:
 """
 
 from typing import List
-from collections import Counter
+from collections import Counter, OrderedDict
 from itertools import chain
 from docopt import docopt
 import pickle
@@ -94,6 +94,20 @@ class Vocab(object):
     def __repr__(self):
         return 'Vocab(source %d words, target %d words)' % (len(self.src), len(self.tgt))
 
+    # def get_top_tokens(self, topk, language_codes):
+    #     top_token_dict = {lang: [] for lang in language_codes}
+    #     for word_idx in self.src:
+    #         if word_idx in [0, 1, 2, 3]: # don't count in the special tokens
+    #             continue
+    #         word = self.src.id2word[word_idx]
+    #         word_lang_code = word[:2]
+    #         if len(top_token_dict[word_lang_code]) < topk:
+    #             top_token_dict[word_lang_code].append(word)
+
+    #     all_tokens = []
+    #     for lang in language_codes:
+    #         all_tokens += top_token_dict[lang]
+    #     return all_tokens
 
 if __name__ == '__main__':
     args = docopt(__doc__)

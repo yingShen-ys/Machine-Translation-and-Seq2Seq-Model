@@ -12,13 +12,14 @@ Options:
     -h --help                               show this screen.
     --cuda                                  use GPU
     --ls-rate=<float>                       the smoothing rate of label smoothing [default: 0.9]
-    --model-type=<str>                      what type of model to use: lstm, original_lstm, or multi_attn_lstm
     --encoder-layers=<int>                  the number of layers of the encoder model [default: 2]
     --train-src=<file>                      train source file
     --train-tgt=<file>                      train target file
     --dev-src=<file>                        dev source file
     --dev-tgt=<file>                        dev target file
     --vocab=<file>                          vocab file
+    --original-src-vocab=<file>             original source language vocab
+    --auxiliary-src-vocab=<file>            auxliary language vocab
     --seed=<int>                            seed [default: 0]
     --batch-size=<int>                      batch size [default: 32]
     --embed-size=<int>                      embedding size [default: 256]
@@ -38,6 +39,11 @@ Options:
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
     --src-embedding-path=<str>              path to pretrained source embeddings [default: None]
     --tgt-embedding-path=<str>              path to pretrained target embeddings [default: None]
+    --src-mono-embedding-path=<str>         path to pretrained source monolingual embeddings [default: None]
+    --model-type=<str>                      type of model to run [default: lstm]
+    --temperature=<float>                   temperature hyperparameter [default: 0.05]
+    --top-tokens=<int>                      number of top tokens for each language that needs monolingual embedding [default: 500]
+    --language-code=<str>                   the language code of all src language separated by '-'
 """
 
 import math
@@ -46,6 +52,8 @@ import sys
 import time
 import torch
 import copy
+
+from pdb import set_trace
 from collections import namedtuple
 
 import numpy as np
@@ -57,6 +65,7 @@ from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunct
 from utils import read_corpus, batch_iter, lstm_init_, lstm_cell_init_
 from vocab import Vocab, VocabEntry
 from model import LSTMSeq2seq
+from ULR import ULR, ULREmbedding
 from torch.nn.init import uniform_
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
@@ -121,21 +130,34 @@ def train(args: Dict[str, str]):
                         dropout_rate=float(args['--dropout']),
                         vocab=vocab, label_smooth=float(args['--ls-rate']),
                         num_layers=int(args['--encoder-layers']))
-    
-    apply_pretrained_embeddings(model, args['--src-embedding-path'], args['--tgt-embedding-path'])
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
-    optimizer_state_copy = copy.deepcopy(optimizer.state_dict())
-
-    # uniformly initialize all parameters
     for parameter in model.parameters():
         uniform_(parameter, a=-float(args['--uniform-init']), b=float(args['--uniform-init']))
+
+    apply_pretrained_embeddings(model, args['--src-embedding-path'], args['--tgt-embedding-path'])
 
     # carefully initialize LSTMs
     lstm_init_(model.encoder_lstm)
     lstm_cell_init_(model.decoder_lstm_cell)
 
+    if args['--model-type'] == 'ULR':
+        print("Initializing ULR components.")
+        ulr_emb = ULREmbedding(vocab, int(args['--embed-size']), float(args['--temperature']))
+        ulr_emb.init_embeddings(args['--src-embedding-path'], args['--src-mono-embedding-path'], args['--tgt-embedding-path'])
+        src_vocab = pickle.load(open(args['--original-src-vocab'], 'rb'))
+        aux_vocab = pickle.load(open(args['--auxiliary-src-vocab'], 'rb'))
+
+        print(f"Finding the top {int(args['--top-tokens'])} tokens for each language")
+        top_tokens = []
+        for i in range(int(args['--top-tokens'])):
+            top_tokens.append(src_vocab.src.id2word[i+4])
+            top_tokens.append(aux_vocab.src.id2word[i+4])
+        ulr_emb.init_alpha_table(top_tokens)
+        model = ULR(model, ulr_emb)
+
+    optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.parameters()), lr=float(args['--lr']))
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
+    optimizer_state_copy = copy.deepcopy(optimizer.state_dict())
     num_trial = 0
     train_iter = patience = cum_loss = report_loss = cumulative_tgt_words = report_tgt_words = 0
     cumulative_examples = report_examples = epoch = valid_num = 0
@@ -259,7 +281,7 @@ def train(args: Dict[str, str]):
                         lr = lr * float(args['--lr-decay'])
                         print('load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
 
-                        # load model
+                        # load model, it doesn't matter ULR or LSTMSeq2seq here, the loading is the same
                         model = LSTMSeq2seq.load(model_save_path)
 
                         print('restore parameters of the optimizers', file=sys.stderr)
@@ -289,11 +311,7 @@ def load_embedding(embedding_path):
 def apply_pretrained_embeddings(model, src_embedding_path, tgt_embedding_path):
     vocab = model.vocab
 
-    if src_embedding_path == 'None':
-        src_embedding_path = None
-    if tgt_embedding_path == 'None':
-        tgt_embedding_path = None
-    if src_embedding_path is not None:
+    try:
         src_embedding_dict = load_embedding(src_embedding_path)
         src_loaded_counts = 0
         print("Processing pretrained word embeddings for source language")
@@ -306,10 +324,10 @@ def apply_pretrained_embeddings(model, src_embedding_path, tgt_embedding_path):
             src_loaded_counts += 1
         model.src_embedding.weight.requires_grad = True
         print(f"{src_loaded_counts} words in source language is found in the pretrained embeddings.")
-    else:
+    except FileNotFoundError:
         print(f"No pretrained embeddings specified for source language")
 
-    if tgt_embedding_path is not None:
+    try:
         tgt_embedding_dict = load_embedding(tgt_embedding_path)
         tgt_loaded_counts = 0
         print("Processing pretrained word embeddings for target language")
@@ -322,7 +340,7 @@ def apply_pretrained_embeddings(model, src_embedding_path, tgt_embedding_path):
             tgt_loaded_counts += 1
         print(f"{tgt_loaded_counts} words in target language is found in the pretrained embeddings.")
         model.tgt_embedding.weight.requires_grad = True
-    else:
+    except FileNotFoundError:
         print(f"No pretrained embeddings specified for target language")
 
 def beam_search(model: object, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int, vocab: Vocab, cuda: str) -> List[List[Hypothesis]]:
