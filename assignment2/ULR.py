@@ -146,11 +146,11 @@ class ULR(nn.Module):
     
     def greedy_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True):
         src_emb = self.ulr_embed(src_sent)
-        return self.nmt.greedy_search(src_sent, src_lens, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=True, feed_embedding=True)
+        return self.nmt.greedy_search(src_emb, src_lens, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda, feed_embedding=True)
     
     def beam_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True):
         src_emb = self.ulr_embed(src_sent)
-        return self.nmt.beam_search(src_sent, src_lens, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=True, feed_embedding=True)
+        return self.nmt.beam_search(src_emb, src_lens, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda, feed_embedding=True)
 
     def evaluate_ppl(self, dev_data, batch_size, cuda=True):
         """

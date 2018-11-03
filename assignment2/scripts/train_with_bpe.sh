@@ -115,12 +115,12 @@ python nmt.py \
     ${vocab} \
     ${work_dir}/model.bin \
     ${test_src} \
-    ${work_dir}/decode_bpe.txt > ${work_dir}/eval.log
+    ${work_dir}/decode_bpe.txt
 
 # run BPE decode
 python bpe.py \
     decode \
     --model "bpe_models/${source}${auxiliary}-en.model" < ${work_dir}/decode_bpe.txt > ${work_dir}/decode.txt
 
-perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt >> ${work_dir}/eval.log
+perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt > ${work_dir}/eval.log
 cat ${work_dir}/eval.log

@@ -66,7 +66,7 @@ class LabelSmoothedCrossEntropy(nn.Module):
 
     def forward(self, pred, target):
         crossent_with_target = self.ce(pred, target)
-        crossent_with_uniform = - F.log_softmax(pred).sum(1) / pred.size(1)
+        crossent_with_uniform = - F.log_softmax(pred, dim=-1).sum(1) / pred.size(1)
         loss = crossent_with_target * self.smoothing_coeff + crossent_with_uniform * (1 - self.smoothing_coeff)
         return loss
 
