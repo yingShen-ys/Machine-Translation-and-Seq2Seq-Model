@@ -70,6 +70,26 @@ class LabelSmoothedCrossEntropy(nn.Module):
         loss = crossent_with_target * self.smoothing_coeff + crossent_with_uniform * (1 - self.smoothing_coeff)
         return loss
 
+class LabelSmoothedNLL(nn.Module):
+    '''
+    Args:
+        - smoothing_coeff: the smoothing coefficient between target dist and uniform
+
+    Input:
+        - pred: (N, C, *)
+        - target: (N, * )
+    '''
+    def __init__(self, smoothing_coeff):
+        super(LabelSmoothedNLL, self).__init__()
+        self.smoothing_coeff = smoothing_coeff
+        self.nll = nn.NLLLoss(reduction='none')
+
+    def forward(self, logprobs, target):
+        crossent_with_target = self.nll(logprobs, target)
+        crossent_with_uniform = - logprobs.sum(1) / logprobs.size(1)
+        loss = crossent_with_target * self.smoothing_coeff + crossent_with_uniform * (1 - self.smoothing_coeff)
+        return loss
+
 def input_transpose(sents, pad_token):
     """
     This function transforms a list of sentences of shape (batch_size, token_num) into 

@@ -12,7 +12,7 @@ import torch.distributions as dist
 import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, orthogonal_
 from collections import namedtuple
-from utils import batch_iter, LabelSmoothedCrossEntropy, lstm_cell_init_, lstm_init_
+from utils import batch_iter, LabelSmoothedCrossEntropy, lstm_cell_init_, lstm_init_, LabelSmoothedNLL
 import time
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
@@ -29,6 +29,57 @@ def pad(idx):
 def dot_attn(a, b): # computes (batch_size, hidden_size) X (batch_size, max_seq_len, hidden_size) >> (batch_size, max_seq_len, 1)
     return torch.einsum('bi,bji->bj', (a, b)).unsqueeze(-1)
 
+class MixtureSoftmax(nn.Module):
+    '''
+    A mixture of softmax output layer for improving decoding results
+    '''
+    def __init__(self, input_size, output_size, num_mixtures=3):
+        self.unnormalized_mixture_weights = nn.Parameter(torch.randn((num_mixtures,)))
+        self.mixtures = nn.Linear(input_size, output_size*num_mixtures)
+        self.input_size = input_size
+        self.output_size = output_size
+        self.num_mixtures = num_mixtures
+    
+    def forward(self, input_vector):
+        unmixed_logits = self.mixtures(input_vector).view(-1, self.num_mixtures, self.output_size)
+        unmixed_probs = F.softmax(unmixed_logits, dim=-1)
+        normalized_weights = F.softmax(self.unnormalized_mixture_weights, dim=-1)
+        mixed_probs = torch.einsum('k,bkj->bj', (normalized_weights, unmixed_probs))
+        return torch.log(mixed_probs) # return log probabilities
+
+class MultiLayerLSTMCell(nn.Module):
+    '''
+    A multi-layer version of LSTM cell for MT decoder
+    '''
+    def __init__(self,input_size, hidden_size, num_layers=1, dropout_rate=0.3):
+        super(MultiLayerLSTMCell, self).__init__()
+        lstm_cells = [nn.LSTMCell(input_size, hidden_size)]
+        if num_layers > 1:
+            lstm_cells += [nn.LSTMCell(hidden_size, hidden_size) for _ in range(num_layers-1)]
+        self.num_layers = num_layers
+        self.lstm_cells = nn.ModuleList(lstm_cells)
+        self.dropout = nn.Dropout(dropout_rate)
+
+    def forward(self, curr_input, prev_states=None):
+        h_all = [] # placeholders
+        c_all = []
+        if prev_states is not None:
+            prev_h = torch.chunk(prev_states[0], self.num_layers, dim=-1)
+            prev_c = torch.chunk(prev_states[1], self.num_layers, dim=-1)
+
+        for i, lstm_cell in enumerate(self.lstm_cells):
+            if prev_states is None:
+                curr_input, c = lstm_cell(curr_input)
+            else:
+                curr_input, c = lstm_cell(curr_input, (prev_h[i], prev_c[i]))
+            h_all.append(curr_input) # appended states don't receive dropouts
+            c_all.append(c)
+            curr_input = self.dropout(curr_input) # first input don't receive dropouts
+
+        h_all = torch.cat(h_all, dim=-1)
+        c_all = torch.cat(c_all, dim=-1)
+        return h_all, c_all
+
 class LSTMSeq2seq(nn.Module):
     '''
     An LSTM based seq2seq model with language as input.
@@ -41,7 +92,7 @@ class LSTMSeq2seq(nn.Module):
          - rdrop: whether there is a recurrent dropout on the encoder side
     '''
 
-    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=0.9, num_layers=2):
+    def __init__(self, embedding_size, hidden_size, vocab, bidirectional=True, dropout_rate=0.3, label_smooth=0.9, num_layers=2, decoder_layers=2, softmax_mixture=1):
         super(LSTMSeq2seq, self).__init__()
         self.state_size = (hidden_size * 2 if bidirectional else hidden_size * 1) * num_layers
         self.vocab = vocab
@@ -50,18 +101,21 @@ class LSTMSeq2seq(nn.Module):
         self.src_embedding = nn.Embedding(self.src_vocab_size, embedding_size)
         self.tgt_embedding = nn.Embedding(self.tgt_vocab_size, embedding_size)
         self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
-        self.decoder_lstm_cell = nn.LSTMCell(embedding_size + self.state_size // num_layers, self.state_size // num_layers)
-        self.decoder_hidden_layer = nn.Linear(2 * self.state_size // num_layers, self.state_size // num_layers)
-        self.decoder_output_layer = nn.Linear(self.state_size // num_layers, self.tgt_vocab_size)
+        self.decoder_layers = decoder_layers
+        self.decoder_lstm_cell = MultiLayerLSTMCell(embedding_size + self.state_size // num_layers, self.state_size // num_layers)
+        # self.decoder_lstm_cell = nn.LSTMCell(embedding_size + self.state_size // num_layers, self.state_size // num_layers)
+        self.decoder_hidden_layer = nn.Linear(2 * self.state_size // num_layers * self.decoder_layers, self.state_size // num_layers * self.decoder_layers)
+        # self.decoder_output_layer = nn.Linear(self.state_size // num_layers * self.decoder_layers, self.tgt_vocab_size)
+        self.decoder_output_layer = MixtureSoftmax(self.state_size // num_layers * self.decoder_layers, self.tgt_vocab_size, num_mixtures=softmax_mixture)
         self.dropout = nn.Dropout(dropout_rate)
         self.attn_func = dot_attn
         self.enc_final_to_dec_init = nn.Linear(self.state_size, self.state_size // num_layers)
         self.label_smooth = label_smooth
         self.num_layers = num_layers
         if label_smooth < 1.0:
-            self.ce_loss = LabelSmoothedCrossEntropy(label_smooth)
+            self.nll_loss = LabelSmoothedNLL(label_smooth)
         else:
-            self.ce_loss = nn.CrossEntropyLoss(reduction='none')
+            self.nll_loss = nn.NLLLoss(reduction='none')
 
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
@@ -123,10 +177,10 @@ class LSTMSeq2seq(nn.Module):
         h, c = self.decoder_lstm_cell(vector, final_states)
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
-        curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
-        neg_log_likelihoods = self.ce_loss(curr_logits, tgt_tokens[..., 1]) # (batch_size,)
+        curr_logprobs = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
+        neg_log_likelihoods = self.nll_loss(curr_logprobs, tgt_tokens[..., 1]) # (batch_size,)
         nll.append(neg_log_likelihoods)
-        _, prd_token = torch.max(curr_logits, dim=-1) # (batch_size,) the decoded tokens
+        _, prd_token = torch.max(curr_logprobs, dim=-1) # (batch_size,) the decoded tokens
         if np.random.uniform() < teacher_forcing:
             prd_token = tgt_tokens[..., 1] # feed the gold sequence token to the next time step
 
@@ -139,10 +193,10 @@ class LSTMSeq2seq(nn.Module):
             h, c = self.decoder_lstm_cell(vector, (h, c))
             context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func))
             curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
-            curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
-            neg_log_likelihoods = self.ce_loss(curr_logits, tgt_tokens[..., t+2]) # (batch_size,)
+            curr_logprobs = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
+            neg_log_likelihoods = self.nll_loss(curr_logprobs, tgt_tokens[..., t+2]) # (batch_size,)
             nll.append(neg_log_likelihoods)
-            _, prd_token = torch.max(curr_logits, dim=-1)
+            _, prd_token = torch.max(curr_logprobs, dim=-1)
             if np.random.uniform() < teacher_forcing:
                 prd_token = tgt_tokens[..., t+2]
         
@@ -173,9 +227,9 @@ class LSTMSeq2seq(nn.Module):
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens,
                                                        attn_func=self.attn_func))  # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
-        curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
-        curr_ll = F.log_softmax(curr_logits, dim=-1)  # transform logits into log-likelihoods
-        curr_score, prd_token = torch.max(curr_ll, dim=-1)  # (batch_size,) the decoded tokens
+        curr_logprobs = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
+        # curr_ll = F.log_softmax(curr_logprobs, dim=-1)  # transform logits into log-likelihoods
+        curr_score, prd_token = torch.max(curr_logprobs, dim=-1)  # (batch_size,) the decoded tokens
         decoded_idx.append(prd_token.item())
         scores += curr_score.item()
     
@@ -187,9 +241,9 @@ class LSTMSeq2seq(nn.Module):
             h, c = self.decoder_lstm_cell(vector, (h, c))
             context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func))
             curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
-            curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
-            curr_ll = F.log_softmax(curr_logits, dim=-1)  # transform logits into log-likelihoods
-            curr_score, prd_token = torch.max(curr_ll, dim=-1)
+            curr_logprobs = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
+            # curr_ll = F.log_softmax(curr_logprobs, dim=-1)  # transform logits into log-likelihoods
+            curr_score, prd_token = torch.max(curr_logprobs, dim=-1)
             decoded_idx.append(prd_token.item())
             scores += curr_score.item()
     
@@ -230,14 +284,14 @@ class LSTMSeq2seq(nn.Module):
         h, c = self.decoder_lstm_cell(vector, final_state)
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
-        curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
-        curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
-        best_scores, best_score_ids = torch.topk(curr_ll, beam_size, dim=-1) # (batch_size, beam_size)
+        curr_logprobs = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
+        # curr_ll = F.log_softmax(curr_logprobs, dim=-1) # transform logits into log-likelihoods
+        best_scores, best_score_ids = torch.topk(curr_logprobs, beam_size, dim=-1) # (batch_size, beam_size)
         best_beam_scores = best_scores # (batch_size, beam_size)
         bk_pointer = best_score_ids / self.tgt_vocab_size  # (batch_size, beam_size)
         best_score_ids = best_score_ids - bk_pointer * self.tgt_vocab_size
         decoded_beam_idx.append(best_score_ids)
-        _, prd_token = torch.max(curr_ll, dim=-1)
+        _, prd_token = torch.max(curr_logprobs, dim=-1)
 
         # expand h, c, src_states, curr_attn_vector for next beam_size tokens: (batch, ) -> (batch * beam_size, )
         h = h.data.repeat(1, beam_size).view(-1, h.size(-1))
@@ -263,9 +317,9 @@ class LSTMSeq2seq(nn.Module):
             context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states_tmp, src_lens, attn_func=self.attn_func))
 
             curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
-            curr_logits = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
-            curr_ll = F.log_softmax(curr_logits, dim=-1) # transform logits into log-likelihoods
-            scores = (curr_ll + survived_score.view(-1, 1)).view(-1, self.tgt_vocab_size*survived_size) # (batch_size, survived_size * vocab_size)
+            curr_logprobs = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
+            # curr_ll = F.log_softmax(curr_logprobs, dim=-1) # transform logits into log-likelihoods
+            scores = (curr_logprobs + survived_score.view(-1, 1)).view(-1, self.tgt_vocab_size*survived_size) # (batch_size, survived_size * vocab_size)
             best_scores, best_score_ids = torch.topk(scores, beam_size, dim=-1) # (batch_size, beam_size)
             best_beam_scores = best_scores
             # recalculate bk_pointer and ids
