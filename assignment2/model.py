@@ -107,9 +107,9 @@ class LSTMSeq2seq(nn.Module):
         self.tgt_embedding = nn.Embedding(self.tgt_vocab_size, embedding_size)
         self.encoder_lstm = nn.LSTM(embedding_size, hidden_size, dropout=dropout_rate, bidirectional=bidirectional, num_layers=num_layers, batch_first=True)
         self.decoder_layers = decoder_layers
-        self.decoder_lstm_cell = MultiLayerLSTMCell(embedding_size + self.state_size // num_layers, self.state_size // num_layers)
+        self.decoder_lstm_cell = MultiLayerLSTMCell(embedding_size + self.state_size // num_layers, self.state_size // num_layers, num_layers=decoder_layers)
         # self.decoder_lstm_cell = nn.LSTMCell(embedding_size + self.state_size // num_layers, self.state_size // num_layers)
-        self.decoder_hidden_layer = nn.Linear(2 * self.state_size // num_layers * self.decoder_layers, self.state_size // num_layers * self.decoder_layers)
+        self.decoder_hidden_layer = nn.Linear((1+decoder_layers) * self.state_size // num_layers * self.decoder_layers, self.state_size // num_layers * self.decoder_layers)
         # self.decoder_output_layer = nn.Linear(self.state_size // num_layers * self.decoder_layers, self.tgt_vocab_size)
         self.decoder_output_layer = MixtureSoftmax(self.state_size // num_layers * self.decoder_layers, self.tgt_vocab_size, num_mixtures=softmax_mixture)
         self.dropout = nn.Dropout(dropout_rate)
@@ -154,10 +154,11 @@ class LSTMSeq2seq(nn.Module):
         src_states, _ = torch.nn.utils.rnn.pad_packed_sequence(packed_src_states, batch_first=True)
         final_cell_states = final_states[-1].permute(1, 0, 2)
 
-        # use a linear mapping to bridge encoder and decoder
+        # use a linear mapping to bridge encoder and decoder, replicate for multiple layers of decoder
         batch_size = final_cell_states.size(0)
-        c = self.enc_final_to_dec_init(final_cell_states.contiguous().view(batch_size, -1))
-        h = torch.tanh(c)
+        c = self.enc_final_to_dec_init(final_cell_states.contiguous().view(batch_size, -1)).unsqueeze(-1).expand(batch_size, -1, self.decoder_layers).permute(0, 2, 1).contiguous().view(batch_size, -1)
+        h = torch.tanh(c).unsqueeze(-1).expand(batch_size, -1, self.decoder_layers).permute(0, 2, 1).contiguous().view(batch_size, -1)
+        c = c.unsqueeze(-1).expand(batch_size, -1, self.decoder_layers).permute(0, 2, 1).contiguous().view(batch_size, -1)
         return src_states, (h, c)
     
     def decode(self, src_states, final_states, src_lens, tgt_tokens, tgt_lens, teacher_forcing=0.5):
