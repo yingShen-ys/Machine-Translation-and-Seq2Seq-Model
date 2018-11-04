@@ -19,36 +19,42 @@ def lstm_init_(lstm_unit):
 
     3) initialized the input2hidden matrix by xavier_uniform
     '''
-    for l in range(lstm_unit.num_layers):
-        xavier_uniform_(getattr(lstm_unit, "weight_ih_l{}".format(l)).data)
-        orthogonal_(getattr(lstm_unit, "weight_hh_l{}".format(l)).data)
-        xavier_uniform_(
-            getattr(lstm_unit, "weight_ih_l{}{}".format(l, '_reverse')).data)
-        orthogonal_(
-            getattr(lstm_unit, "weight_hh_l{}{}".format(l, '_reverse')).data)
-        getattr(lstm_unit, "bias_ih_l{}".format(l)).data.fill_(0)
-        getattr(lstm_unit, "bias_ih_l{}".format(
-            l)).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
-        getattr(lstm_unit, "bias_ih_l{}{}".format(l, '_reverse')).data.fill_(0)
-        getattr(lstm_unit, "bias_ih_l{}{}".format(l, '_reverse')
-                ).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
-        getattr(lstm_unit, "bias_hh_l{}".format(l)).data.fill_(0)
-        getattr(lstm_unit, "bias_hh_l{}".format(
-            l)).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
-        getattr(lstm_unit, "bias_hh_l{}{}".format(l, '_reverse')).data.fill_(0)
-        getattr(lstm_unit, "bias_hh_l{}{}".format(l, '_reverse')
-                ).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+    if isinstance(lstm_unit, nn.LSTM):
+        for l in range(lstm_unit.num_layers):
+            xavier_uniform_(getattr(lstm_unit, "weight_ih_l{}".format(l)).data)
+            orthogonal_(getattr(lstm_unit, "weight_hh_l{}".format(l)).data)
+            xavier_uniform_(
+                getattr(lstm_unit, "weight_ih_l{}{}".format(l, '_reverse')).data)
+            orthogonal_(
+                getattr(lstm_unit, "weight_hh_l{}{}".format(l, '_reverse')).data)
+            getattr(lstm_unit, "bias_ih_l{}".format(l)).data.fill_(0)
+            getattr(lstm_unit, "bias_ih_l{}".format(
+                l)).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+            getattr(lstm_unit, "bias_ih_l{}{}".format(l, '_reverse')).data.fill_(0)
+            getattr(lstm_unit, "bias_ih_l{}{}".format(l, '_reverse')
+                    ).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+            getattr(lstm_unit, "bias_hh_l{}".format(l)).data.fill_(0)
+            getattr(lstm_unit, "bias_hh_l{}".format(
+                l)).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+            getattr(lstm_unit, "bias_hh_l{}{}".format(l, '_reverse')).data.fill_(0)
+            getattr(lstm_unit, "bias_hh_l{}{}".format(l, '_reverse')
+                    ).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
+    else:
+        print(f"A {type(lstm_unit)} object has been passed to lstm_init_ function instead of torch.nn.LSTM")
 
 def lstm_cell_init_(lstm_cell):
     '''
     Initialize the LSTMCell parameters in a slightly better way
     '''
-    xavier_uniform_(lstm_cell.weight_ih.data)
-    orthogonal_(lstm_cell.weight_hh.data)
-    lstm_cell.bias_ih.data.fill_(0)
-    lstm_cell.bias_hh.data.fill_(0)
-    lstm_cell.bias_ih.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
-    lstm_cell.bias_hh.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
+    if isinstance(lstm_cell, nn.LSTMCell):
+        xavier_uniform_(lstm_cell.weight_ih.data)
+        orthogonal_(lstm_cell.weight_hh.data)
+        lstm_cell.bias_ih.data.fill_(0)
+        lstm_cell.bias_hh.data.fill_(0)
+        lstm_cell.bias_ih.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
+        lstm_cell.bias_hh.data[lstm_cell.hidden_size:2*lstm_cell.hidden_size] = 1./2
+    else:
+        print(f"A {type(lstm_cell)} object has been passed to lstm_cell_init_ function instead of torch.nn.LSTMCell")
 
 class LabelSmoothedCrossEntropy(nn.Module):
     '''

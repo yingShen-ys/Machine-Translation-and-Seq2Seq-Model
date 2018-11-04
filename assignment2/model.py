@@ -61,6 +61,10 @@ class MultiLayerLSTMCell(nn.Module):
         self.lstm_cells = nn.ModuleList(lstm_cells)
         self.dropout = nn.Dropout(dropout_rate)
 
+        # init
+        for cell in self.lstm_cells:
+            lstm_cell_init_(cell)
+
     def forward(self, curr_input, prev_states=None):
         h_all = [] # placeholders
         c_all = []

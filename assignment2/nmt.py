@@ -44,7 +44,7 @@ Options:
     --temperature=<float>                   temperature hyperparameter [default: 0.05]
     --top-tokens=<int>                      number of top tokens for each language that needs monolingual embedding [default: 500]
     --language-code=<str>                   the language code of all src language separated by '-'
-    --num-mixture=<int>                     the number of softmax mixtures for the decoder [default: 1]
+    --num-mixtures=<int>                     the number of softmax mixtures for the decoder [default: 1]
     --decoder-layers=<int>                  the number of decoder layers [default: 2]
 """
 
