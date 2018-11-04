@@ -3,9 +3,11 @@
 source=$1
 auxiliary=$2
 
+
+
 # creating folders
 echo "running experiments for language $1 and $2"
-work_dir="experiments/work_dir_concat_bpe_${source}_${auxiliary}"
+work_dir="experiments/work_dir_concat_bpe_ultimate_dec_${source}_${auxiliary}"
 mkdir -p ${work_dir}
 
 # load original and auxiliary source embeddings
@@ -93,8 +95,8 @@ python nmt.py \
     --cuda \
     --seed 233 \
     --vocab ${vocab} \
-    --decoder-layers 1 \
-    --num-mixtures 1 \
+    --decoder-layers 2 \
+    --num-mixtures 3 \
     --train-src ${train_src} \
     --train-tgt ${train_tgt} \
     --dev-src ${dev_src} \

@@ -44,6 +44,8 @@ Options:
     --temperature=<float>                   temperature hyperparameter [default: 0.05]
     --top-tokens=<int>                      number of top tokens for each language that needs monolingual embedding [default: 500]
     --language-code=<str>                   the language code of all src language separated by '-'
+    --num-mixture=<int>                     the number of softmax mixtures for the decoder [default: 1]
+    --decoder-layers=<int>                  the number of decoder layers [default: 2]
 """
 
 import math
@@ -129,7 +131,9 @@ def train(args: Dict[str, str]):
                         hidden_size=int(args['--hidden-size']),
                         dropout_rate=float(args['--dropout']),
                         vocab=vocab, label_smooth=float(args['--ls-rate']),
-                        num_layers=int(args['--encoder-layers']))
+                        num_layers=int(args['--encoder-layers']),
+                        decoder_layers=int(args['--decoder-layers']),
+                        softmax_mixture=int(args['--num-mixtures']))
 
     for parameter in model.parameters():
         uniform_(parameter, a=-float(args['--uniform-init']), b=float(args['--uniform-init']))

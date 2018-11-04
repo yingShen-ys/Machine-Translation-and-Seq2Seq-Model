@@ -126,6 +126,8 @@ python nmt.py \
     --cuda \
     --seed 233 \
     --vocab ${vocab} \
+    --decoder-layers 1 \
+    --num-mixtures 1 \
     --train-src ${train_src} \
     --train-tgt ${train_tgt} \
     --original-src-vocab ${original_src_vocab} \
