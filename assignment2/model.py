@@ -34,6 +34,7 @@ class MixtureSoftmax(nn.Module):
     A mixture of softmax output layer for improving decoding results
     '''
     def __init__(self, input_size, output_size, num_mixtures=3):
+        super(MixtureSoftmax, self).__init__()
         self.unnormalized_mixture_weights = nn.Parameter(torch.randn((num_mixtures,)))
         self.mixtures = nn.Linear(input_size, output_size*num_mixtures)
         self.input_size = input_size
