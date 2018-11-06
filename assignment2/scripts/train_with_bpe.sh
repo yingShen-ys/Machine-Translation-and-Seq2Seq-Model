@@ -60,8 +60,8 @@ if [[ ! -e ${train_src} ]] && [[ ! -e ${dev_src} ]] && [[ ! -e ${train_tgt} ]] &
             --model-prefix ${source}${auxiliary}en \
             --model-type bpe \
             --vocab-size 15000
-        mv "${source}${auxiliary}.model" "bpe_models/"
-        mv "${source}${auxiliary}.vocab" "bpe_models/"
+        mv "${source}${auxiliary}en.model" "bpe_models/"
+        mv "${source}${auxiliary}en.vocab" "bpe_models/"
     fi
 
     # if [[ ! -e "bpe_models/${source}${auxiliary}-en.model" ]]; then
