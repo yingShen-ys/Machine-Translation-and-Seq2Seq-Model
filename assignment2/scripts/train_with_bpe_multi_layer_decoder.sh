@@ -55,33 +55,33 @@ if [[ ! -e ${train_src} ]] && [[ ! -e ${dev_src} ]] && [[ ! -e ${train_tgt} ]] &
     cat $train_original_tgt $train_auxiliary_tgt > $concat_train_tgt
     cat $dev_original_tgt $dev_auxiliary_tgt > $concat_dev_tgt
     # run BPE for src and tgt data
-    if [[ ! -e "bpe_models/${source}${auxiliary}.model" ]]; then
+    if [[ ! -e "bpe_models/${source}${auxiliary}en.model" ]]; then
         python bpe.py train \
             --input ${concat_train_src} \
             --character-coverage 1.0 \
-            --model-prefix ${source}${auxiliary} \
+            --model-prefix ${source}${auxiliary}en \
             --model-type bpe \
-            --vocab-size 10000
+            --vocab-size 15000
         mv "${source}${auxiliary}.model" "bpe_models/"
         mv "${source}${auxiliary}.vocab" "bpe_models/"
     fi
 
-    if [[ ! -e "bpe_models/${source}${auxiliary}-en.model" ]]; then
-        python bpe.py train \
-            --input ${concat_train_tgt} \
-            --character-coverage 1.0 \
-            --model-prefix ${source}${auxiliary}-en \
-            --model-type bpe \
-            --vocab-size 10000
-        mv "${source}${auxiliary}-en.model" "bpe_models/"
-        mv "${source}${auxiliary}-en.vocab" "bpe_models/"
-    fi
+    # if [[ ! -e "bpe_models/${source}${auxiliary}-en.model" ]]; then
+    #     python bpe.py train \
+    #         --input ${concat_train_tgt} \
+    #         --character-coverage 1.0 \
+    #         --model-prefix ${source}${auxiliary}-en \
+    #         --model-type bpe \
+    #         --vocab-size 10000
+    #     mv "${source}${auxiliary}-en.model" "bpe_models/"
+    #     mv "${source}${auxiliary}-en.vocab" "bpe_models/"
+    # fi
     # run BPE models on src and target
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${concat_train_src} > ${train_src}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${concat_dev_src} > ${dev_src}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${original_test_src} > ${test_src}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}-en.model" < ${concat_train_tgt} > ${train_tgt}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}-en.model" < ${concat_dev_tgt} > ${dev_tgt}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${concat_train_src} > ${train_src}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${concat_dev_src} > ${dev_src}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${original_test_src} > ${test_src}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${concat_train_tgt} > ${train_tgt}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${concat_dev_tgt} > ${dev_tgt}
     python vocab.py --train-src $train_src --train-tgt $train_tgt $vocab
 else
     echo "Preprocessed files already exists"
