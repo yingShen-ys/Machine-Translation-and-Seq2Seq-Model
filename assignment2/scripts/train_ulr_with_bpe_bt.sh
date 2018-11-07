@@ -2,10 +2,12 @@
 
 source=$1
 auxiliary=$2
+dec_layers=$3
+num_mix=$4
 
 # creating folders
 echo "running experiments for language $1 and $2"
-work_dir="experiments/work_dir_ulr_bpe_multi_layer_dec_${source}_${auxiliary}"
+work_dir="experiments/work_dir_ulr_bpe_bt_${dec_layers}_${num_mix}_${source}_${auxiliary}"
 mkdir -p ${work_dir}
 
 # load original and auxiliary source embeddings
@@ -126,8 +128,8 @@ python nmt.py \
     --cuda \
     --seed 233 \
     --vocab ${vocab} \
-    --decoder-layers 2 \
-    --num-mixtures 1 \
+    --decoder-layers $dec_layers \
+    --num-mixtures $num_mix \
     --train-src ${train_src} \
     --train-tgt ${train_tgt} \
     --original-src-vocab ${original_src_vocab} \
