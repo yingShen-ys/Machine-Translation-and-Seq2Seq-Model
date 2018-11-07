@@ -76,7 +76,7 @@ if [[ ! -e ${train_src} ]] && [[ ! -e ${dev_src} ]] && [[ ! -e ${train_tgt} ]] &
             --character-coverage 1.0 \
             --model-prefix ${source}${auxiliary}en \
             --model-type bpe \
-            --vocab-size 10000
+            --vocab-size 20000
         mv "${source}${auxiliary}en.model" "bpe_models/"
         mv "${source}${auxiliary}en.vocab" "bpe_models/"
     fi
@@ -137,8 +137,8 @@ python nmt.py \
     --dev-src ${dev_src} \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir}/model.bin \
-    --valid-niter 5718 \
-    --batch-size 35 \
+    --valid-niter 2000 \
+    --batch-size 87 \
     --hidden-size 256 \
     --embed-size 300 \
     --uniform-init 0.1 \
