@@ -109,8 +109,8 @@ python nmt.py \
     --cuda \
     --seed 233 \
     --vocab ${vocab} \
-    --decoder-layers 1 \
-    --num-mixtures 1 \
+    --decoder-layers $dec_layer \
+    --num-mixtures $num_mix \
     --train-src ${train_src} \
     --train-tgt ${train_tgt} \
     --dev-src ${dev_src} \
