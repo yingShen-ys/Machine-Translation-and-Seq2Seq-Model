@@ -1,5 +1,5 @@
 """
-extract training, dev, test data for gl, az, be, pt, tr, ru
+extract training, dev, test data for en
 """
 
 import io
@@ -19,7 +19,7 @@ def get_en_wo_ln(ln):
         for row in reader:
             en, fr = row['en'].strip(), row[ln].strip()
             fr = fr.replace("__NULL__","").replace('_ _ NULL _ _','').strip()
-            if len(fr) != 0:
+            if len(fr) != 0: # remove en sentence that has existing paired language ln
                 continue
             data.append((en,fr))
         csv_f.seek(0)
