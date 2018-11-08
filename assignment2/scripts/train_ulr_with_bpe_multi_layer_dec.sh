@@ -68,52 +68,52 @@ if [[ ! -e ${train_src} ]] && [[ ! -e ${dev_src} ]] && [[ ! -e ${train_tgt} ]] &
     cat $train_original_tgt $train_auxiliary_tgt > $concat_train_tgt
     cat $dev_original_tgt $dev_auxiliary_tgt > $concat_dev_tgt
     # run BPE for src and tgt data SEPARATELY
-    if [[ ! -e "bpe_models/${source}${auxiliary}.model" ]]; then
+    if [[ ! -e "bpe_models/${source}${auxiliary}en.model" ]]; then
         python bpe.py train \
             --input ${concat_train_src} \
             --character-coverage 1.0 \
-            --model-prefix ${source}${auxiliary} \
+            --model-prefix ${source}${auxiliary}en \
             --model-type bpe \
             --vocab-size 10000
-        mv "${source}${auxiliary}.model" "bpe_models/"
-        mv "${source}${auxiliary}.vocab" "bpe_models/"
+        mv "${source}${auxiliary}en.model" "bpe_models/"
+        mv "${source}${auxiliary}en.vocab" "bpe_models/"
     fi
 
-    if [[ ! -e "bpe_models/${source}${auxiliary}-en.model" ]]; then
-        python bpe.py train \
-            --input ${concat_train_tgt} \
-            --character-coverage 1.0 \
-            --model-prefix ${source}${auxiliary}-en \
-            --model-type bpe \
-            --vocab-size 10000
-        mv "${source}${auxiliary}-en.model" "bpe_models/"
-        mv "${source}${auxiliary}-en.vocab" "bpe_models/"
-    fi
+    # if [[ ! -e "bpe_models/${source}${auxiliary}-en.model" ]]; then
+    #     python bpe.py train \
+    #         --input ${concat_train_tgt} \
+    #         --character-coverage 1.0 \
+    #         --model-prefix ${source}${auxiliary}-en \
+    #         --model-type bpe \
+    #         --vocab-size 10000
+    #     mv "${source}${auxiliary}-en.model" "bpe_models/"
+    #     mv "${source}${auxiliary}-en.vocab" "bpe_models/"
+    # fi
     # run BPE models on src and target
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${train_original_src} > ${bpe_train_original_src}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${dev_original_src} > ${bpe_dev_original_src}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${train_auxiliary_src} > ${bpe_train_auxiliary_src}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${dev_auxiliary_src} > ${bpe_dev_auxiliary_src}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${train_original_src} > ${bpe_train_original_src}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${dev_original_src} > ${bpe_dev_original_src}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${train_auxiliary_src} > ${bpe_train_auxiliary_src}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${dev_auxiliary_src} > ${bpe_dev_auxiliary_src}
 
     # python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${concat_dev_src} > ${dev_src}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${original_test_src} > ${bpe_test_src}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}-en.model" < ${concat_train_tgt} > ${train_tgt}
-    python bpe.py encode --model "bpe_models/${source}${auxiliary}-en.model" < ${concat_dev_tgt} > ${dev_tgt}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${original_test_src} > ${bpe_test_src}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}en.model" < ${concat_train_tgt} > ${train_tgt}
+    python bpe.py encode --model "bpe_models/${source}${auxiliary}.model" < ${concat_dev_tgt} > ${dev_tgt}
     
-    # prepend language markers
-    python lang_marker.py mark --lang-code ${source} < ${bpe_train_original_src} > ${predix_bpe_train_original_src}
-    python lang_marker.py mark --lang-code ${source} < ${bpe_dev_original_src} > ${predix_bpe_dev_original_src}
-    python lang_marker.py mark --lang-code ${auxiliary} < ${bpe_train_auxiliary_src} > ${predix_bpe_train_auxiliary_src}
-    python lang_marker.py mark --lang-code ${auxiliary} < ${bpe_dev_auxiliary_src} > ${predix_bpe_dev_auxiliary_src}
-    python lang_marker.py mark --lang-code ${source} < ${bpe_test_src} > ${test_src}
+    # prepend language markers this turns out to be harmful at times
+    # python lang_marker.py mark --lang-code ${source} < ${bpe_train_original_src} > ${predix_bpe_train_original_src}
+    # python lang_marker.py mark --lang-code ${source} < ${bpe_dev_original_src} > ${predix_bpe_dev_original_src}
+    # python lang_marker.py mark --lang-code ${auxiliary} < ${bpe_train_auxiliary_src} > ${predix_bpe_train_auxiliary_src}
+    # python lang_marker.py mark --lang-code ${auxiliary} < ${bpe_dev_auxiliary_src} > ${predix_bpe_dev_auxiliary_src}
+    # python lang_marker.py mark --lang-code ${source} < ${bpe_test_src} > ${test_src}
 
     # aggregate data together
-    cat ${predix_bpe_train_original_src} ${predix_bpe_train_auxiliary_src} > ${train_src}
-    cat ${predix_bpe_dev_original_src} ${predix_bpe_dev_auxiliary_src} > ${dev_src}
+    cat ${bpe_train_original_src} ${bpe_train_auxiliary_src} > ${train_src}
+    cat ${bpe_dev_original_src} ${bpe_dev_auxiliary_src} > ${dev_src}
 
     python vocab.py --train-src $train_src --train-tgt $train_tgt $vocab
-    python vocab.py --train-src $predix_bpe_train_original_src --train-tgt $train_original_tgt $original_src_vocab
-    python vocab.py --train-src $predix_bpe_train_auxiliary_src --train-tgt $train_auxiliary_tgt $auxiliary_src_vocab
+    python vocab.py --train-src $bpe_train_original_src --train-tgt $train_original_tgt $original_src_vocab
+    python vocab.py --train-src $bpe_train_auxiliary_src --train-tgt $train_auxiliary_tgt $auxiliary_src_vocab
 else
     echo "Preprocessed files already exists"
 fi
@@ -157,7 +157,7 @@ python nmt.py \
 # run BPE decode
 python bpe.py \
     decode \
-    --model "bpe_models/${source}${auxiliary}-en.model" < ${work_dir}/decode_bpe.txt > ${work_dir}/decode.txt
+    --model "bpe_models/${source}${auxiliary}en.model" < ${work_dir}/decode_bpe.txt > ${work_dir}/decode.txt
 
 perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt > ${work_dir}/eval.log
 cat ${work_dir}/eval.log

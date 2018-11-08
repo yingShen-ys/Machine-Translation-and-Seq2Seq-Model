@@ -244,7 +244,7 @@ def train(args: Dict[str, str]):
                 print('begin validation ...', file=sys.stderr)
 
                 # compute dev. ppl and bleu
-                dev_ppl = model.evaluate_ppl(dev_data, batch_size=128)   # dev batch size can be a bit larger
+                dev_ppl = model.evaluate_ppl(dev_data, batch_size=32)   # dev batch size can be a bit larger
                 valid_metric = -dev_ppl
                 lr_scheduler.step(valid_metric)
 
