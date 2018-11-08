@@ -46,6 +46,8 @@ python nmt.py \
     --vocab ${vocab} \
     --train-src ${train_src} \
     --train-tgt ${train_tgt} \
+    --decoder-layers 1 \
+    --num-mixtures 1 \
     --dev-src ${dev_src} \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir}/model.bin \
