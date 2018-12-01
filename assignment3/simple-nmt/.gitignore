@@ -1,0 +1,5 @@
+models/*
+*.pyc
+.vscode/settings.json
+*.pt
+*.pth

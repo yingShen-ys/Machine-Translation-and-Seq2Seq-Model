@@ -1,0 +1,48 @@
+# use it with original repo
+python train.py \
+    --model ./models/deen.pth \
+    --train ./data/iswlt/corpus.train \
+    --valid ./data/iswlt/corpus.valid \
+    --lang deen \
+    --adam \
+    --lr 0.0001 \
+    --word_vec_dim 256 \
+    --hidden_size 512 \
+    --batch_size 32 \
+    --n_epochs 15 \
+    --rl_n_epochs -1 \
+    --early_stop -1 \
+    --n_layers 2 \
+    --batch_size 64 \
+    --gpu_id 0
+
+# Use reinforce
+python train.py \
+    --n_epochs -1 \
+    --model deen_nli_best.pth \
+    --bimpm_pretrained_model_path BIMPM_best_xnli.pt \
+    --train data/nli_split/nli.train \
+    --valid data/nli_split/nli.valid \
+    --lang deen \
+    --print_every 40 \
+    --rl_n_gram 4 \
+    --rl_lr 0.001 \
+    --rl_n_epochs 15 \
+    --gpu_id -1
+
+# Use minimum risk training
+python train.py \
+    --n_epochs -1 \
+    --model deen_nli_best.pth \
+    --bimpm_pretrained_model_path BIMPM_best_xnli.pt \
+    --train data/nli_split/nli.train \
+    --valid data/nli_split/nli.valid \
+    --lang deen \
+    --print_every 40 \
+    --rl_n_gram 4 \
+    --rl_lr 0.001 \
+    --rl_n_epochs 15 \
+    --n_samples 2 \
+    --use_minimum_risk \
+    --temperature 1.0 \
+    --gpu_id -1
