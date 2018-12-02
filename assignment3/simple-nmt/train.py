@@ -176,7 +176,10 @@ def define_argparser():
 def overwrite_config(config, prev_config):
     # This method provides a compatibility for new or missing arguments.
     for key in vars(prev_config).keys():
-        if '--%s' % key not in sys.argv or key == 'model':
+        if key == 'pretrain':
+            continue
+
+        if '--%s' % key not in sys.argv or key == '--model':
             if vars(config).get(key) is not None:
                 vars(config)[key] = vars(prev_config)[key]
             else:
@@ -207,6 +210,7 @@ if __name__ == "__main__":
         saved_data = None
 
     # Load training and validation data set.
+    print(config)
     loader = DataLoader(config.train,
                         config.valid,
                         [config.lang[:2], config.lang[-2:]] + config.exts.split(','),

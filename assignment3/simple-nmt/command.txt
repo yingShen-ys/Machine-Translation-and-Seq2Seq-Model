@@ -8,7 +8,7 @@ python train.py \
     --lr 0.0001 \
     --word_vec_dim 256 \
     --hidden_size 512 \
-    --batch_size 32 \
+    --batch_size 64 \
     --n_epochs 15 \
     --rl_n_epochs -1 \
     --early_stop -1 \
@@ -21,8 +21,8 @@ python train.py \
 # Use reinforce
 python train.py \
     --n_epochs -1 \
-    --model deen_nli_best.pth \
-    --bimpm_pretrained_model_path BIMPM_best_xnli.pt \
+    --model merged_vocab_best.pth \
+    --bimpm_pretrained_model_path BIMPM_best_merged_vocab.pt \
     --train data/nli_split/nli.train \
     --valid data/nli_split/nli.valid \
     --lang deen \
@@ -35,8 +35,8 @@ python train.py \
 # Use minimum risk training
 python train.py \
     --n_epochs -1 \
-    --model deen_nli_best.pth \
-    --bimpm_pretrained_model_path BIMPM_best_xnli.pt \
+    --model deen.merged_vocab_best.pth \
+    --bimpm_pretrained_model_path BIMPM_best_merged_vocab.pt \
     --train data/nli_split/nli.train \
     --valid data/nli_split/nli.valid \
     --lang deen \

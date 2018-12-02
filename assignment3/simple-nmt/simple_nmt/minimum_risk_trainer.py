@@ -153,7 +153,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
         print(optimizer)
 
         sample_cnt = 0
-        total_risk, total_bleu, total_sample_count, total_word_count, total_parameter_norm, total_grad_norm = 0, 0, 0, 0, 0, 0
+        total_risk, total_errors, total_sample_count, total_word_count, total_parameter_norm, total_grad_norm = 0, 0, 0, 0, 0, 0
         start_time = time.time()
         train_loss = np.inf
 
