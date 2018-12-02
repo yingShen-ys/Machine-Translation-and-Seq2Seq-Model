@@ -13,8 +13,7 @@ class SNLI():
 
         self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
 
-        # self.TEXT.build_vocab(self.train, self.dev, self.test, vectors=GloVe(name='840B', dim=300))
-        vocab = pickle.load(open('model/en_vocab', 'rb'))
+        vocab = pickle.load(open('iswlt_xnli_snli_merged_vocab', 'rb'))
         vocab.vectors = None
         vocab.load_vectors(GloVe(name='840B', dim=300), unk_init=None, cache=None)
         self.TEXT.vocab = vocab

@@ -160,6 +160,13 @@ def define_argparser():
                    action='store_true',
                    help='Use minimum risk training instead of using REINFORCE.'
                    )
+    p.add_argument('--pretrain',
+                   action='store_true',
+                   help='Specify whether it is pretrain or actual training.'
+                   )
+    p.add_argument('--tgt_vocab_path',
+                   help='Specify the target vocab path.'
+                   )
 
     config = p.parse_args()
 
@@ -205,12 +212,16 @@ if __name__ == "__main__":
                         [config.lang[:2], config.lang[-2:]] + config.exts.split(','),
                         batch_size=config.batch_size,
                         device=config.gpu_id,
-                        max_length=config.max_length
+                        max_length=config.max_length,
+                        is_pretrain=config.pretrain
                         )
 
     loader.load_label_vocab(pickle.load(open(config.snli_label_path, 'rb')))
     if saved_data:
         loader.load_vocab(saved_data['src_vocab'], saved_data['tgt_vocab'])
+    if config.tgt_vocab_path:
+        loader.load_target_vocab(pickle.load(open(config.tgt_vocab_path, 'rb')))
+
     # Encoder's embedding layer input size
     input_size = len(loader.src.vocab)
     # Decoder's embedding layer input size and Generator's softmax layer output size

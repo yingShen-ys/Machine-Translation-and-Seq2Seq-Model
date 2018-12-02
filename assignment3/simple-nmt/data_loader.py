@@ -17,7 +17,8 @@ class DataLoader():
                  fix_length=None,
                  use_bos=True,
                  use_eos=True,
-                 shuffle=True
+                 shuffle=True,
+                 is_pretrain=False
                  ):
 
         super(DataLoader, self).__init__()
@@ -62,17 +63,26 @@ class DataLoader():
         self.labels = data.LabelField()
 
         if train_fn is not None and valid_fn is not None and exts is not None:
-            train = TranslationNLIDataset(path=train_fn,
-                                       exts=exts,
-                                       fields=[('src', self.src),
-                                               ('tgt', self.tgt),
-                                               ('premise', self.premise),
-                                               ('hypothesis', self.hypothesis),
-                                               ('isSrcPremise', self.isSrcPremise),
-                                               ('labels', self.labels),
-                                               ],
-                                       max_length=max_length
-                                       )
+            if is_pretrain:
+                train = TranslationDataset(path=train_fn,
+                                        exts=exts[:2],
+                                        fields=[('src', self.src),
+                                                ('tgt', self.tgt),
+                                                ],
+                                        max_length=max_length
+                                        )
+            else:
+                train = TranslationNLIDataset(path=train_fn,
+                                        exts=exts,
+                                        fields=[('src', self.src),
+                                                ('tgt', self.tgt),
+                                                ('premise', self.premise),
+                                                ('hypothesis', self.hypothesis),
+                                                ('isSrcPremise', self.isSrcPremise),
+                                                ('labels', self.labels),
+                                                ],
+                                        max_length=max_length
+                                        )
             valid = TranslationDataset(path=valid_fn,
                                        exts=exts[:2],
                                        fields=[('src', self.src),
@@ -98,16 +108,20 @@ class DataLoader():
 
             self.src.build_vocab(train, max_size=max_vocab)
             self.tgt.build_vocab(train, max_size=max_vocab)
-            self.premise.vocab = self.tgt.vocab
-            self.hypothesis.vocab = self.tgt.vocab
-            self.isSrcPremise.build_vocab(train)
-            self.labels.build_vocab(train)
+            if not is_pretrain:
+                self.premise.vocab = self.tgt.vocab
+                self.hypothesis.vocab = self.tgt.vocab
+                self.isSrcPremise.build_vocab(train)
+                self.labels.build_vocab(train)
 
     def load_vocab(self, src_vocab, tgt_vocab):
         self.src.vocab = src_vocab
         self.tgt.vocab = tgt_vocab
         self.premise.vocab = self.tgt.vocab
         self.hypothesis.vocab = self.tgt.vocab
+        
+    def load_target_vocab(self, tgt_bocab):
+        self.tgt.vocab = tgt_bocab
 
     def load_label_vocab(self, label_bocab):
         self.labels.vocab = label_bocab
@@ -204,18 +218,20 @@ if __name__ == '__main__':
     import sys
     loader = DataLoader(sys.argv[1],
                         sys.argv[2],
-                        (sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7], sys.argv[8]),
+                        (sys.argv[3], sys.argv[4]),
+                        # (sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7], sys.argv[8]),
                         batch_size=2,
-                        device=-1
+                        device=-1,
+                        is_pretrain=True
                         )
 
     for batch_index, batch in enumerate(loader.train_iter):
         print(batch.src)
         print(batch.tgt)
-        print(batch.premise)
-        print(batch.hypothesis)
-        print(batch.isSrcPremise)
-        print(batch.labels)
+        # print(batch.premise)
+        # print(batch.hypothesis)
+        # print(batch.isSrcPremise)
+        # print(batch.labels)
 
         if batch_index == 0:
             break
