@@ -13,7 +13,7 @@ import utils
 import data_loader
 
 
-def get_reward(y, y_hat, n_gram=6):
+def get_bleu_reward(y, y_hat, n_gram=6):
     # This method gets the reward based on the sampling result and reference sentence.
     # For now, we uses GLEU in NLTK, but you can used your own well-defined reward function.
     # In addition, GLEU is variation of BLEU, and it is more fit to reinforcement learning.
@@ -55,7 +55,7 @@ def get_nli_reward(pred_label, label, criterion):
     return criterion(pred_label, label)
 
 def get_accuracy(logit, labels):
-    prob = nn.functional.softmax(logit)
+    prob = nn.functional.softmax(logit, dim=1)
     pred_labels = torch.argmax(prob, dim=1).long()
 
     return (pred_labels.long() == labels.long()).sum().item()/labels.size(0)
@@ -98,6 +98,8 @@ def pad_probs(probs, max_sample_length):
         if sample_length != max_sample_length:
             padding_length = max_sample_length - sample_length
             padding_tensor = torch.zeros(batch_size, padding_length)
+            if prob.is_cuda:
+                padding_tensor = padding_tensor.cuda()
             prob = torch.cat([prob, padding_tensor], 1)
         result.append(prob)
     
@@ -130,7 +132,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
         # |y_hat| = (batch_size, length, output_size)
         # |indice| = (batch_size, length)
 
-        reward = get_reward(y, indice, n_gram=config.rl_n_gram)
+        reward = get_bleu_reward(y, indice, n_gram=config.rl_n_gram)
 
         total_reward += float(reward.sum())
         sample_cnt += batch_size
@@ -144,14 +146,33 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
     nli_criterion = nn.CrossEntropyLoss(reduce=False)
     print("start epoch:", start_epoch)
     print("number of epoch to complete:", config.rl_n_epochs + 1)
-    for epoch in range(start_epoch, config.rl_n_epochs + 1):
-        # optimizer = optim.Adam(model.parameters(), lr = current_lr)
-        optimizer = optim.SGD(model.parameters(),
-                              lr=current_lr
-                              )  # Default hyper-parameter is set for SGD.
-        print("current learning rate: %f" % current_lr)
-        print(optimizer)
 
+    parameters = model.parameters()  
+    if config.reward_mode == 'combined':
+        nli_weight = torch.rand(1)
+        bleu_weight = torch.rand(1)
+        nli_weight.requires_grad = True
+        bleu_weight.requires_grad = True
+        if config.gpu_id >= 0:
+            nli_weight = nli_weight.cuda()
+            bleu_weight = bleu_weight.cuda()
+    
+        print("nli_weight, bleu_weight:", nli_weight.data.cpu().numpy()[0], bleu_weight.data.cpu().numpy()[0])
+
+        from itertools import chain
+        parameters = chain(parameters, iter([nli_weight, bleu_weight]))
+
+    # if config.adam:
+    #     optimizer = optim.Adam(parameters, lr = current_lr)
+    # else:
+    optimizer = optim.SGD(parameters,
+                        lr=current_lr,
+                        momentum=0.9
+                        )  # Default hyper-parameter is set for SGD.
+    print("current learning rate: %f" % current_lr)
+    print(optimizer)
+
+    for epoch in range(start_epoch, config.rl_n_epochs + 1):
         sample_cnt = 0
         total_risk, total_errors, total_sample_count, total_word_count, total_parameter_norm, total_grad_norm = 0, 0, 0, 0, 0, 0
         start_time = time.time()
@@ -163,14 +184,15 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
             current_batch_word_cnt = torch.sum(batch.tgt[1])
             x = batch.src
             y = batch.tgt[0][:, 1:]
-            premise = batch.premise
-            hypothesis = batch.hypothesis
-            isSrcPremise = batch.isSrcPremise
-            label = batch.labels
             batch_size = y.size(0)
             epoch_accuracy = []
-            sequence_probs, errors = [], []
             max_sample_length = 0
+            sequence_probs, errors = [], []
+            if config.reward_mode != 'bleu':
+                premise = batch.premise
+                hypothesis = batch.hypothesis
+                isSrcPremise = batch.isSrcPremise
+                label = batch.labels
 
             # |x| = (batch_size, length)
             # |y| = (batch_size, length)
@@ -182,30 +204,40 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                                             max_length=config.max_length
                                             )
                 max_sample_length = max(max_sample_length, indice.size(1))
-
-                padded_indice, premise, hypothesis = padding_three_tensors(indice, premise, hypothesis, batch_size)
                 prob = y_hat.gather(2, indice.unsqueeze(2)).squeeze(2)
                 sequence_probs.append(prob)
                 # |prob| = (batch_size, length)
 
-                # put pred sentece into either premise and 
-                for i in range(batch_size):
-                    if isSrcPremise[i]:
-                        premise[i] = padded_indice[i]
-                    else:
-                        hypothesis[i] = padded_indice[i]
+                if config.reward_mode == 'bleu':
+                    bleu = get_bleu_reward(y, indice, n_gram=config.rl_n_gram)
+                    reward = 100 - bleu
+                    epoch_accuracy.append(bleu.sum()/batch_size)
+                else:
+                    padded_indice, premise, hypothesis = padding_three_tensors(indice, premise, hypothesis, batch_size)
 
-                kwargs = {'p': premise, 'h': hypothesis}
-                pred_logit = bimpm(**kwargs)
-                accuracy = get_accuracy(pred_logit, label)
-                epoch_accuracy.append(accuracy)
+                    # put pred sentece into either premise and hypothesis
+                    for i in range(batch_size):
+                        if isSrcPremise[i]:
+                            premise[i] = padded_indice[i]
+                        else:
+                            hypothesis[i] = padded_indice[i]
+
+                    kwargs = {'p': premise, 'h': hypothesis}
+                    pred_logit = bimpm(**kwargs)
+                    accuracy = get_accuracy(pred_logit, label)
+                    epoch_accuracy.append(accuracy)
 
                 # Based on the result of sampling, get reward.
-                reward = get_nli_reward(pred_logit, label, nli_criterion)
+                    if config.reward_mode == 'nli':
+                        reward = -get_nli_reward(pred_logit, label, nli_criterion)
+                    else:
+                        reward = 1/(2 * nli_weight.pow(2)) * -get_nli_reward(pred_logit, label, nli_criterion) \
+                            + 1/(2 * bleu_weight.pow(2)) * (100 - get_bleu_reward(y, indice, n_gram=config.rl_n_gram)) \
+                            + torch.log(nli_weight * bleu_weight)
                 # |y_hat| = (batch_size, length, output_size)
                 # |indice| = (batch_size, length)
                 # |reward| = (batch_size)
-                errors.append(-reward)
+                errors.append(reward)
             
             padded_probs = pad_probs(sequence_probs, max_sample_length)
             sequence_probs = torch.stack(padded_probs, dim = 2)
@@ -219,8 +251,8 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                 probs = nn.functional.softmax(probs, dim=1)
             else:
                 probs = nn.functional.softmax(avg_probs.exp_(), dim=1)
-            risk = (probs * errors).sum()
-            loss = risk.backward()
+            risk = (probs * errors).sum()/batch_size
+            risk.backward()
 
             # simple math to show stats
             total_risk += float(risk.sum())
@@ -249,6 +281,9 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                                                                                                                                total_word_count // elapsed_time,
                                                                                                                                elapsed_time
                                                                                                                                ))
+                
+                if config.reward_mode == 'combined':
+                    print("nli_weight, bleu_weight:", nli_weight.data.cpu().numpy()[0], bleu_weight.data.cpu().numpy()[0])
 
                 total_risk, total_errors, total_sample_count, total_word_count, total_parameter_norm, total_grad_norm = 0, 0, 0, 0, 0, 0
                 epoch_accuracy = []
@@ -290,7 +325,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                 # |y_hat| = (batch_size, length, output_size)
                 # |indice| = (batch_size, length)
 
-                reward = get_reward(y, indice, n_gram=config.rl_n_gram)
+                reward = get_bleu_reward(y, indice, n_gram=config.rl_n_gram)
 
                 total_reward += float(reward.sum())
                 sample_cnt += batch_size

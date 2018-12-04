@@ -16,6 +16,14 @@ def define_argparser():
                    required=True,
                    help='Model file name to use'
                    )
+    p.add_argument('--input_file',
+                   required=True,
+                   help='the source file to translate'
+                   )
+    p.add_argument('--output_file',
+                   required=True,
+                   help='the source file to translate'
+                   )
     p.add_argument('--gpu_id',
                    type=int,
                    default=-1,
@@ -48,13 +56,13 @@ def define_argparser():
     return config
 
 
-def read_text():
+def read_input_file(filepath):
     # This method gets sentences from standard input and tokenize those.
     lines = []
 
-    for line in sys.stdin:
-        if line.strip() != '':
-            lines += [line.strip().split(' ')]
+    with open(filepath, 'r') as f:
+        for line in f:
+            lines += [line.rstrip('\n').split(' ')]
 
     return lines
 
@@ -84,7 +92,10 @@ if __name__ == '__main__':
     config = define_argparser()
 
     # Load saved model.
-    saved_data = torch.load(config.model)
+    if config.gpu_id >= 0:
+        saved_data = torch.load(config.model)
+    else:
+        saved_data = torch.load(config.model, map_location='cpu')
 
     # Load configuration setting in training.
     train_config = saved_data['config']
@@ -118,7 +129,7 @@ if __name__ == '__main__':
         model.cuda(config.gpu_id)
 
     # Get sentences from standard input.
-    lines = read_text()
+    lines = read_input_file(config.input_file)
 
     with torch.no_grad():  # Also, declare again to prevent to get gradients.
         while len(lines) > 0:
@@ -166,6 +177,7 @@ if __name__ == '__main__':
                     output += [to_text(batch_indice[i], loader.tgt.vocab)]
                 sorted_tuples = sorted(zip(output, orders), key=itemgetter(1))
                 output = [sorted_tuples[i][0] for i in range(len(sorted_tuples))]
-
-                for i in range(len(output)):
-                    sys.stdout.write('\n'.join(output[i]) + '\n')
+                
+                with open(config.output_file, 'a') as f:
+                    for i in range(len(output)):
+                        f.write('\n'.join(output[i]) + '\n')

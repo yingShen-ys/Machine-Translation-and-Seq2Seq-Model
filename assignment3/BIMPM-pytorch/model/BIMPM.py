@@ -16,7 +16,7 @@ class BIMPM(nn.Module):
 
         self.word_emb = nn.Embedding(args.word_vocab_size, args.word_dim)
         # initialize word embedding with GloVe
-        self.word_emb.weight.data.copy_(data.TEXT.vocab.vectors)
+        # self.word_emb.weight.data.copy_(data.TEXT.vocab.vectors)
         # no fine-tuning for word vectors
         self.word_emb.weight.requires_grad = False
 

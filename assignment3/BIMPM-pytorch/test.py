@@ -52,9 +52,9 @@ def test(model, args, data, mode='test'):
     return loss, acc
 
 
-def load_model(args, data):
+def load_model(args, data, saved_state_dict):
     model = BIMPM(args, data)
-    model.load_state_dict(torch.load(args.model_path))
+    model.load_state_dict(saved_state_dict)
 
     if args.gpu > -1:
         model.cuda(args.gpu)
@@ -64,38 +64,33 @@ def load_model(args, data):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch-size', default=64, type=int)
-    parser.add_argument('--char-dim', default=20, type=int)
-    parser.add_argument('--char-hidden-size', default=50, type=int)
-    parser.add_argument('--dropout', default=0.1, type=float)
-    parser.add_argument('--data-type', default='SNLI', help='available: SNLI or Quora')
-    parser.add_argument('--epoch', default=10, type=int)
-    parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--hidden-size', default=100, type=int)
-    parser.add_argument('--learning-rate', default=0.001, type=float)
-    parser.add_argument('--num-perspective', default=20, type=int)
-    parser.add_argument('--use-char-emb', default=True, action='store_true')
-    parser.add_argument('--word-dim', default=300, type=int)
-
     parser.add_argument('--model-path', required=True)
+    parser.add_argument('--gpu', default=1, type=int)
 
     args = parser.parse_args()
+    if args.gpu > -1:
+        saved_data = torch.load(args.model_path)
+    else:
+        saved_data = torch.load(args.model_path, map_location='cpu')
 
-    if args.data_type == 'SNLI':
+    saved_args = saved_data['args']
+    saved_args.gpu = args.gpu
+
+    if saved_args.data_type == 'SNLI':
         print('loading SNLI data...')
-        data = SNLI(args)
+        data = SNLI(saved_args)
     elif args.data_type == 'Quora':
         print('loading Quora data...')
-        data = Quora(args)
+        data = Quora(saved_args)
 
-    setattr(args, 'char_vocab_size', len(data.char_vocab))
-    setattr(args, 'word_vocab_size', len(data.TEXT.vocab))
-    setattr(args, 'class_size', len(data.LABEL.vocab))
-    setattr(args, 'max_word_len', data.max_word_len)
+    setattr(saved_args, 'char_vocab_size', len(data.char_vocab))
+    setattr(saved_args, 'word_vocab_size', len(data.TEXT.vocab))
+    setattr(saved_args, 'class_size', len(data.LABEL.vocab))
+    setattr(saved_args, 'max_word_len', data.max_word_len)
 
     print('loading model...')
-    model = load_model(args, data)
+    model = load_model(saved_args, data, saved_data['model'])
 
-    _, acc = test(model, args, data)
+    _, acc = test(model, saved_args, data)
 
     print(f'test acc: {acc:.3f}')

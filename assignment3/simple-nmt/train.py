@@ -167,6 +167,9 @@ def define_argparser():
     p.add_argument('--tgt_vocab_path',
                    help='Specify the target vocab path.'
                    )
+    p.add_argument('--reward_mode',
+                   help='Specify the reward mode.'
+                   )
 
     config = p.parse_args()
 
@@ -246,8 +249,7 @@ if __name__ == "__main__":
     # Instead of using Cross-Entropy loss, we can use Negative Log-Likelihood(NLL) loss with log-probability.
     criterion = nn.NLLLoss(weight=loss_weight, size_average=False)
 
-    print(model)
-    print(criterion)
+    assert config.reward_mode in ['nli', 'bleu', 'combined'], "the reward mode should be one of ['nli', 'bleu', 'combined']"
 
     # Pass models to GPU device if it is necessary.
     print(config.gpu_id)
