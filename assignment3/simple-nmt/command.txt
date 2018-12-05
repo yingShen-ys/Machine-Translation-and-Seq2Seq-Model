@@ -15,7 +15,6 @@ python train.py \
     --n_layers 2 \
     --batch_size 64 \
     --pretrain \
-    --tgt_vocab_path iswlt_xnli_snli_merged_vocab \
     --gpu_id -1
 
 # Use reinforce
@@ -32,59 +31,47 @@ python train.py \
     --rl_n_epochs 15 \
     --gpu_id -1
 
-# Use minimum risk training
-python train.py \
-    --n_epochs -1 \
-    --model deen.merged_vocab_best.pth \
-    --bimpm_pretrained_model_path BIMPM_best_merged_vocab.pt \
-    --train data/nli_split/nli.train \
-    --valid data/nli_split/nli.valid \
-    --lang deen \
-    --print_every 40 \
-    --rl_n_gram 4 \
-    --rl_lr 0.001 \
-    --rl_n_epochs 15 \
-    --n_samples 2 \
-    --use_minimum_risk \
-    --temperature 1.0 \
-    --reward_mode bleu \
-    --gpu_id -1
-    
 # Use minimum risk training and only bleu reward for validation
 python train.py \
     --n_epochs -1 \
-    --model deen.merged_vocab_best.pth \
-    --bimpm_pretrained_model_path BIMPM_best_merged_vocab.pt \
-    --train data/iwslt/corpus.valid \
-    --valid data/test \
+    --model deen.iwslt_xnli_best.pth \
+    --bimpm_pretrained_model_path BIMPM_multinli_iwslt_merged_vocab_best.pt \
+    --train data/nli_split/nli.train \
+    --valid data/iwslt/corpus.valid \
+    --valid_nli data/nli_iwslt/nli.all \
     --lang deen \
     --print_every 40 \
     --rl_n_gram 4 \
-    --rl_lr 0.001 \
-    --rl_n_epochs 10 \
+    --rl_lr 0.05 \
+    --rl_n_epochs 15 \
     --n_samples 5 \
     --use_minimum_risk \
     --temperature 1.0 \
     --reward_mode bleu \
     --pretrain \
     --batch_size 32 \
+    --max_grad_norm 0.1 \
     --gpu_id -1
 
 # Use minimum risk training and combined losses
 python train.py \
     --n_epochs -1 \
-    --model deen.merged_vocab_best.pth \
-    --bimpm_pretrained_model_path BIMPM_best_merged_vocab.pt \
-    --train data/nli_iwslt/nli.all \
+    --model deen.iwslt_xnli_best.pth \
+    --bimpm_pretrained_model_path BIMPM_multinli_iwslt_merged_vocab_best.pt \
+    --train data/nli_split/nli.train \
     --valid data/iwslt/corpus.valid \
+    --valid_nli data/nli_split/nli.valid \
     --lang deen \
     --print_every 40 \
     --rl_n_gram 4 \
-    --rl_lr 0.001 \
+    --rl_lr 0.05 \
     --rl_n_epochs 10 \
     --n_samples 2 \
     --use_minimum_risk \
     --temperature 1.0 \
     --reward_mode combined \
     --batch_size 32 \
+    --max_grad_norm 0.1 \
     --gpu_id -1
+
+python translate.py --model deen.iwslt_xnli_best.pth --input_file ./data/nli_split/nli.train.de --output_file nli.train.en.translated
