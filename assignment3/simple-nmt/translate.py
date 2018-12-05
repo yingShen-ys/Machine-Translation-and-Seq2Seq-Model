@@ -130,6 +130,7 @@ if __name__ == '__main__':
 
     # Get sentences from standard input.
     lines = read_input_file(config.input_file)
+    print(len(lines))
 
     with torch.no_grad():  # Also, declare again to prevent to get gradients.
         while len(lines) > 0:
@@ -162,7 +163,8 @@ if __name__ == '__main__':
                 sorted_tuples = sorted(zip(output, orders), key=itemgetter(1))
                 output = [sorted_tuples[i][0] for i in range(len(sorted_tuples))]
 
-                sys.stdout.write('\n'.join(output) + '\n')
+                with open(config.output_file, 'a') as f:
+                    f.write('\n'.join(output) + '\n')
             else:
                 # Take mini-batch parallelized beam search.
                 batch_indice, _ = model.batch_beam_search(x,

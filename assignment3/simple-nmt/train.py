@@ -32,6 +32,9 @@ def define_argparser():
                    required=True,
                    help='Set of extention represents language pair. (ex: en + ko --> enko)'
                    )
+    p.add_argument('--valid_nli',
+                   help='Validation set file name except the extention. (ex: valid.en --> valid)'
+                   )
     p.add_argument('--exts',
                    default='premises,hypothesis,is_premise,label',
                    help='all the other extensions'
@@ -41,7 +44,7 @@ def define_argparser():
                    help='BIMPM best model'
                    )
     p.add_argument('--snli_label_path',
-                   default='label_vocab',
+                   default='multinli_label_vocab',
                    help='BIMPM label vocab'
                    )
     p.add_argument('--gpu_id',
@@ -179,10 +182,10 @@ def define_argparser():
 def overwrite_config(config, prev_config):
     # This method provides a compatibility for new or missing arguments.
     for key in vars(prev_config).keys():
-        if key == 'pretrain':
+        if key == 'pretrain' or key == 'model' or key == 'snli_label_path':
             continue
 
-        if '--%s' % key not in sys.argv or key == '--model':
+        if '--%s' % key not in sys.argv:
             if vars(config).get(key) is not None:
                 vars(config)[key] = vars(prev_config)[key]
             else:
@@ -216,7 +219,8 @@ if __name__ == "__main__":
     print(config)
     loader = DataLoader(config.train,
                         config.valid,
-                        [config.lang[:2], config.lang[-2:]] + config.exts.split(','),
+                        valid_nli_fn=config.valid_nli,
+                        exts=[config.lang[:2], config.lang[-2:]] + config.exts.split(','),
                         batch_size=config.batch_size,
                         device=config.gpu_id,
                         max_length=config.max_length,
@@ -226,7 +230,7 @@ if __name__ == "__main__":
     loader.load_label_vocab(pickle.load(open(config.snli_label_path, 'rb')))
     if saved_data:
         loader.load_vocab(saved_data['src_vocab'], saved_data['tgt_vocab'])
-    if config.tgt_vocab_path:
+    elif config.tgt_vocab_path:
         loader.load_target_vocab(pickle.load(open(config.tgt_vocab_path, 'rb')))
 
     # Encoder's embedding layer input size
@@ -249,7 +253,8 @@ if __name__ == "__main__":
     # Instead of using Cross-Entropy loss, we can use Negative Log-Likelihood(NLL) loss with log-probability.
     criterion = nn.NLLLoss(weight=loss_weight, size_average=False)
 
-    assert config.reward_mode in ['nli', 'bleu', 'combined'], "the reward mode should be one of ['nli', 'bleu', 'combined']"
+    if not config.pretrain:
+        assert config.reward_mode in ['nli', 'bleu', 'combined'], "the reward mode should be one of ['nli', 'bleu', 'combined']"
 
     # Pass models to GPU device if it is necessary.
     print(config.gpu_id)
@@ -302,5 +307,6 @@ if __name__ == "__main__":
                             start_epoch=1,
                             others_to_save={'src_vocab': loader.src.vocab,
                                             'tgt_vocab': loader.tgt.vocab
-                                            }
+                                            },
+                            valid_nli_iter=loader.valid_nli_iter if hasattr(loader, 'valid_nli_iter') else None
                             )

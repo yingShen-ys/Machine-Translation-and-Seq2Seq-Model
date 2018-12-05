@@ -105,8 +105,48 @@ def pad_probs(probs, max_sample_length):
     
     return result
 
+def nli_validation(valid_nli_iter, model, bimpm, config):
+    total_accuracy, sample_cnt = 0, 0
+    for batch_index, batch in enumerate(valid_nli_iter):
+        x = batch.src
+        y = batch.tgt[0][:, 1:]
+        batch_size = y.size(0)
+        premise = batch.premise
+        hypothesis = batch.hypothesis
+        isSrcPremise = batch.isSrcPremise
+        label = batch.labels
+        # |x| = (batch_size, length)
+        # |y| = (batch_size, length)
+
+        # feed-forward
+        y_hat, indice = model.search(x,
+                                    is_greedy=True,
+                                    max_length=config.max_length
+                                    )
+        # |y_hat| = (batch_size, length, output_size)
+        # |indice| = (batch_size, length)
+        padded_indice, premise, hypothesis = padding_three_tensors(indice, premise, hypothesis, batch_size)
+
+        # put pred sentece into either premise and 
+        for i in range(batch_size):
+            if isSrcPremise[i]:
+                premise[i] = padded_indice[i]
+            else:
+                hypothesis[i] = padded_indice[i]
+
+        kwargs = {'p': premise, 'h': hypothesis}
+        pred_logit = bimpm(**kwargs)
+        accuracy = get_accuracy(pred_logit, label)
+
+        total_accuracy += accuracy
+        sample_cnt += batch_size
+        if sample_cnt >= len(valid_nli_iter.dataset.examples):
+            break
+    avg_accuracy = total_accuracy / (batch_index + 1)
+    print("valid accuracy: %.4f" % avg_accuracy)  # You can figure-out improvement.
+
 def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
-                start_epoch=1, others_to_save=None
+                start_epoch=1, others_to_save=None, valid_nli_iter=None
                 ):
     current_lr = config.rl_lr
 
@@ -132,7 +172,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
         # |y_hat| = (batch_size, length, output_size)
         # |indice| = (batch_size, length)
 
-        reward = get_bleu_reward(y, indice, n_gram=config.rl_n_gram)
+        reward = get_bleu_reward(y, indice, n_gram=min(config.rl_n_gram, indice.size(1)))
 
         total_reward += float(reward.sum())
         sample_cnt += batch_size
@@ -140,6 +180,9 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
             break
     avg_bleu = total_reward / sample_cnt
     print("initial valid BLEU: %.4f" % avg_bleu)  # You can figure-out improvement.
+    
+    if valid_nli_iter:
+        nli_validation(valid_nli_iter, model, bimpm, config)
     model.train()  # Now, begin training.
 
     # Start RL
@@ -147,30 +190,27 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
     print("start epoch:", start_epoch)
     print("number of epoch to complete:", config.rl_n_epochs + 1)
 
-    parameters = model.parameters()  
     if config.reward_mode == 'combined':
-        nli_weight = torch.rand(1)
-        bleu_weight = torch.rand(1)
-        nli_weight.requires_grad = True
-        bleu_weight.requires_grad = True
         if config.gpu_id >= 0:
-            nli_weight = nli_weight.cuda()
-            bleu_weight = bleu_weight.cuda()
+            # nli_weight = torch.rand(1, requires_grad=True, device="cuda")
+            # bleu_weight = torch.rand(1, requires_grad=True, device="cuda")
+            nli_weight = torch.tensor([0.5], requires_grad=True, device="cuda")
+            bleu_weight = torch.tensor([0.5], requires_grad=True, device="cuda")
+        else:
+            # nli_weight = torch.rand(1, requires_grad=True)
+            # bleu_weight = torch.rand(1, requires_grad=True)
+            nli_weight = torch.tensor([0.5], requires_grad=True)
+            bleu_weight = torch.tensor([0.5], requires_grad=True)
     
         print("nli_weight, bleu_weight:", nli_weight.data.cpu().numpy()[0], bleu_weight.data.cpu().numpy()[0])
 
-        from itertools import chain
-        parameters = chain(parameters, iter([nli_weight, bleu_weight]))
-
-    # if config.adam:
-    #     optimizer = optim.Adam(parameters, lr = current_lr)
-    # else:
-    optimizer = optim.SGD(parameters,
+    optimizer = optim.SGD(model.parameters(),
                         lr=current_lr,
                         momentum=0.9
                         )  # Default hyper-parameter is set for SGD.
     print("current learning rate: %f" % current_lr)
     print(optimizer)
+    weight_optimizer = optim.Adam(iter([nli_weight, bleu_weight]), lr = 0.0001)
 
     for epoch in range(start_epoch, config.rl_n_epochs + 1):
         sample_cnt = 0
@@ -232,7 +272,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                         reward = -get_nli_reward(pred_logit, label, nli_criterion)
                     else:
                         reward = 1/(2 * nli_weight.pow(2)) * -get_nli_reward(pred_logit, label, nli_criterion) \
-                            + 1/(2 * bleu_weight.pow(2)) * (100 - get_bleu_reward(y, indice, n_gram=config.rl_n_gram)) \
+                            + 1/(2 * bleu_weight.pow(2)) * (1 - get_bleu_reward(y, indice, n_gram=config.rl_n_gram)/100) \
                             + torch.log(nli_weight * bleu_weight)
                 # |y_hat| = (batch_size, length, output_size)
                 # |indice| = (batch_size, length)
@@ -297,6 +337,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                                         )
             # Take a step of gradient descent.
             optimizer.step()
+            weight_optimizer.step()
 
             sample_cnt += batch_size
             if sample_cnt >= len(train_iter.dataset.examples):
@@ -341,6 +382,8 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
             else:
                 no_improve_cnt += 1
 
+            if valid_nli_iter:
+                nli_validation(valid_nli_iter, model, bimpm, config)
             model.train()
 
         model_fn = config.model.split(".")

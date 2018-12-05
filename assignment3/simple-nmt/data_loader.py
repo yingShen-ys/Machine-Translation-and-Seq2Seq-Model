@@ -9,6 +9,7 @@ class DataLoader():
     def __init__(self,
                  train_fn=None,
                  valid_fn=None,
+                 valid_nli_fn=None,
                  exts=None,
                  batch_size=64,
                  device='cpu',
@@ -106,9 +107,30 @@ class DataLoader():
                                                   sort_within_batch=True
                                                   )
 
+            if valid_nli_fn is not None:
+                valid_nli = TranslationNLIDataset(path=valid_nli_fn,
+                                        exts=exts,
+                                        fields=[('src', self.src),
+                                                ('tgt', self.tgt),
+                                                ('premise', self.premise),
+                                                ('hypothesis', self.hypothesis),
+                                                ('isSrcPremise', self.isSrcPremise),
+                                                ('labels', self.labels),
+                                                ],
+                                        max_length=max_length
+                                        )
+
+                self.valid_nli_iter = data.BucketIterator(valid_nli,
+                                                    batch_size=batch_size,
+                                                    device='cuda:%d' % device if device >= 0 else 'cpu',
+                                                    shuffle=False,
+                                                    sort_key=lambda x: len(x.tgt) + (max_length * len(x.src)),
+                                                    sort_within_batch=True
+                                                    )
+
             self.src.build_vocab(train, max_size=max_vocab)
             self.tgt.build_vocab(train, max_size=max_vocab)
-            if not is_pretrain:
+            if not is_pretrain or valid_nli_fn is not None:
                 self.premise.vocab = self.tgt.vocab
                 self.hypothesis.vocab = self.tgt.vocab
                 self.isSrcPremise.build_vocab(train)

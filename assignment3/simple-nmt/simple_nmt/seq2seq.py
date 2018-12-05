@@ -346,6 +346,8 @@ class Seq2Seq(nn.Module):
                 y = torch.topk(y_hat, 1, dim=-1)[1].squeeze(-1)
             else:
                 # Take a random sampling based on the multinoulli distribution.
+                if torch.any(torch.isnan(y_hat)):
+                    print("error")
                 y = torch.multinomial(y_hat.exp().view(batch_size, -1), 1)
             # Put PAD if the sample is done.
             y = y.masked_fill_((1. - is_undone).byte(), data_loader.PAD)
