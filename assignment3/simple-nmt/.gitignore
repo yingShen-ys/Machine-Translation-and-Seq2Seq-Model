@@ -3,3 +3,5 @@ models/*
 .vscode/settings.json
 *.pt
 *.pth
+
+data
