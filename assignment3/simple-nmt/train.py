@@ -233,6 +233,7 @@ if __name__ == "__main__":
     elif config.tgt_vocab_path:
         loader.load_target_vocab(pickle.load(open(config.tgt_vocab_path, 'rb')))
 
+    print(loader.isSrcPremise.vocab.itos, file=sys.stderr)
     # Encoder's embedding layer input size
     input_size = len(loader.src.vocab)
     # Decoder's embedding layer input size and Generator's softmax layer output size

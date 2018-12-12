@@ -131,7 +131,7 @@ def nli_validation(valid_nli_iter, model, bimpm, config):
 
         # put pred sentece into either premise and 
         for i in range(batch_size):
-            if isSrcPremise[i]:
+            if not isSrcPremise[i]:
                 premise[i] = padded_indice[i]
             else:
                 hypothesis[i] = padded_indice[i]
@@ -194,11 +194,11 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
 
     if config.reward_mode == 'combined':
         if config.gpu_id >= 0:
-            nli_weight = torch.rand(1, requires_grad=True, device="cuda")
-            bleu_weight = torch.rand(1, requires_grad=True, device="cuda")
+            nli_weight = torch.tensor([1.0], requires_grad=True, device="cuda")
+            bleu_weight = torch.tensor([1.0], requires_grad=True, device="cuda")
         else:
-            nli_weight = torch.rand(1, requires_grad=True)
-            bleu_weight = torch.rand(1, requires_grad=True)
+            nli_weight = torch.tensor([1.0], requires_grad=True)
+            bleu_weight = torch.tensor([1.0], requires_grad=True)
     
         print("nli_weight, bleu_weight:", nli_weight.data.cpu().numpy()[0], bleu_weight.data.cpu().numpy()[0])
         weight_optimizer = optim.Adam(iter([nli_weight, bleu_weight]), lr = 0.0001)
@@ -246,7 +246,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
 
                 # put pred sentece into either premise and hypothesis
                 for i in range(batch_size):
-                    if isSrcPremise[i]:
+                    if not isSrcPremise[i]:
                         padded_premise[i] = padded_indice[i]
                     else:
                         padded_hypothesis[i] = padded_indice[i]
@@ -285,7 +285,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
 
                         # put pred sentece into either premise and hypothesis
                         for i in range(batch_size):
-                            if isSrcPremise[i]:
+                            if not isSrcPremise[i]:
                                 padded_premise[i] = padded_sampled_indice[i]
                             else:
                                 padded_hypothesis[i] = padded_sampled_indice[i]

@@ -60,6 +60,27 @@ def get_accuracy(logit, labels):
 
     return (pred_labels.long() == labels.long()).sum().item()/labels.size(0)
 
+def get_label_accuracy(logit, labels):
+    prob = nn.functional.softmax(logit, dim=1)
+    pred_labels = torch.argmax(prob, dim=1).long()
+    max_label = torch.max(labels.int())
+    cpu_labels = labels.cpu().numpy()
+    pred_labels = pred_labels.cpu().numpy()
+    num_correct, size = [], []
+    for i in range(max_label + 1):
+        correct, count = 0, 0
+        for j in range(len(cpu_labels)):
+            if cpu_labels[j] != i:
+                continue
+            
+            count += 1
+            correct += cpu_labels[j] == pred_labels[j]
+        
+        num_correct.append(correct)
+        size.append(count)
+        
+    return np.array(num_correct), np.array(size)
+
 def padding_three_tensors(indice, premise, hypothesis, batch_size):
     pred_length = indice.size(1)
     hypothesis_length = hypothesis.size(1)
@@ -107,6 +128,8 @@ def pad_probs(probs, max_sample_length):
 
 def nli_validation(valid_nli_iter, model, bimpm, config):
     total_accuracy, sample_cnt = 0, 0
+    total_label_correct = np.zeros(3)
+    total_label_size = np.zeros(3)
     for batch_index, batch in enumerate(valid_nli_iter):
         x = batch.src
         y = batch.tgt[0][:, 1:]
@@ -134,9 +157,13 @@ def nli_validation(valid_nli_iter, model, bimpm, config):
             else:
                 hypothesis[i] = padded_indice[i]
 
-        kwargs = {'p': premise, 'h': hypothesis}
-        pred_logit = bimpm(**kwargs)
-        accuracy = get_accuracy(pred_logit, label)
+        with torch.no_grad():
+            kwargs = {'p': premise, 'h': hypothesis}
+            pred_logit = bimpm(**kwargs)
+            accuracy = get_accuracy(pred_logit, label)
+            num_correct, size = get_label_accuracy(pred_logit, label)
+            total_label_correct += num_correct
+            total_label_size += size
 
         total_accuracy += accuracy
         sample_cnt += batch_size
@@ -144,6 +171,7 @@ def nli_validation(valid_nli_iter, model, bimpm, config):
             break
     avg_accuracy = total_accuracy / (batch_index + 1)
     print("valid accuracy: %.4f" % avg_accuracy)  # You can figure-out improvement.
+    print("valid label accuracy:", total_label_correct/total_label_size)  
 
 def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                 start_epoch=1, others_to_save=None, valid_nli_iter=None
@@ -192,11 +220,11 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
 
     if config.reward_mode == 'combined':
         if config.gpu_id >= 0:
-            nli_weight = torch.rand(1, requires_grad=True, device="cuda")
-            bleu_weight = torch.rand(1, requires_grad=True, device="cuda")
+            nli_weight = torch.tensor([1.0], requires_grad=True, device="cuda")
+            bleu_weight = torch.tensor([1.0], requires_grad=True, device="cuda")
         else:
-            nli_weight = torch.rand(1, requires_grad=True)
-            bleu_weight = torch.rand(1, requires_grad=True)
+            nli_weight = torch.tensor([1.0], requires_grad=True)
+            bleu_weight = torch.tensor([1.0], requires_grad=True)
     
         print("nli_weight, bleu_weight:", nli_weight.data.cpu().numpy()[0], bleu_weight.data.cpu().numpy()[0])
         weight_optimizer = optim.Adam(iter([nli_weight, bleu_weight]), lr = 0.0001)
@@ -211,6 +239,8 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
     for epoch in range(start_epoch, config.rl_n_epochs + 1):
         sample_cnt = 0
         total_risk, total_errors, total_sample_count, total_word_count, total_parameter_norm, total_grad_norm = 0, 0, 0, 0, 0, 0
+        total_label_correct = np.zeros(3)
+        total_label_size = np.zeros(3)
         start_time = time.time()
         train_loss = np.inf
 
@@ -246,7 +276,7 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
 
                 if config.reward_mode == 'bleu':
                     bleu = get_bleu_reward(y, indice, n_gram=config.rl_n_gram)
-                    reward = 100 - bleu
+                    reward = 1 - bleu/100
                     epoch_accuracy.append(bleu.sum()/batch_size)
                 else:
                     padded_indice, padded_premise, padded_hypothesis = padding_three_tensors(indice, premise, hypothesis, batch_size)
@@ -258,9 +288,13 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                         else:
                             padded_hypothesis[i] = padded_indice[i]
 
-                    kwargs = {'p': padded_premise, 'h': padded_hypothesis}
-                    pred_logit = bimpm(**kwargs)
-                    accuracy = get_accuracy(pred_logit, label)
+                    with torch.no_grad():
+                        kwargs = {'p': padded_premise, 'h': padded_hypothesis}
+                        pred_logit = bimpm(**kwargs)
+                        accuracy = get_accuracy(pred_logit, label)
+                        num_correct, size = get_label_accuracy(pred_logit, label)
+                        total_label_correct += num_correct
+                        total_label_size += size
                     epoch_accuracy.append(accuracy)
 
                 # Based on the result of sampling, get reward.
@@ -318,11 +352,14 @@ def train_epoch(model, bimpm, criterion, train_iter, valid_iter, config,
                                                                                                                                elapsed_time
                                                                                                                                ))
                 
+                print("train label accuracy:", total_label_correct/total_label_size)  
                 if config.reward_mode == 'combined':
                     print("nli_weight, bleu_weight:", nli_weight.data.cpu().numpy()[0], bleu_weight.data.cpu().numpy()[0])
 
                 total_risk, total_errors, total_sample_count, total_word_count, total_parameter_norm, total_grad_norm = 0, 0, 0, 0, 0, 0
                 epoch_accuracy = []
+                total_label_correct = np.zeros(3)
+                total_label_size = np.zeros(3)
                 start_time = time.time()
 
                 train_loss = avg_bleu

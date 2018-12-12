@@ -64,26 +64,26 @@ class DataLoader():
         self.labels = data.LabelField()
 
         if train_fn is not None and valid_fn is not None and exts is not None:
-            if is_pretrain:
-                train = TranslationDataset(path=train_fn,
-                                        exts=exts[:2],
-                                        fields=[('src', self.src),
-                                                ('tgt', self.tgt),
-                                                ],
-                                        max_length=max_length
-                                        )
-            else:
-                train = TranslationNLIDataset(path=train_fn,
-                                        exts=exts,
-                                        fields=[('src', self.src),
-                                                ('tgt', self.tgt),
-                                                ('premise', self.premise),
-                                                ('hypothesis', self.hypothesis),
-                                                ('isSrcPremise', self.isSrcPremise),
-                                                ('labels', self.labels),
-                                                ],
-                                        max_length=max_length
-                                        )
+            # if is_pretrain:
+            #     train = TranslationDataset(path=train_fn,
+            #                             exts=exts[:2],
+            #                             fields=[('src', self.src),
+            #                                     ('tgt', self.tgt),
+            #                                     ],
+            #                             max_length=max_length
+            #                             )
+            # else:
+            train = TranslationNLIDataset(path=train_fn,
+                                    exts=exts,
+                                    fields=[('src', self.src),
+                                            ('tgt', self.tgt),
+                                            ('premise', self.premise),
+                                            ('hypothesis', self.hypothesis),
+                                            ('isSrcPremise', self.isSrcPremise),
+                                            ('labels', self.labels),
+                                            ],
+                                    max_length=max_length
+                                    )
             valid = TranslationDataset(path=valid_fn,
                                        exts=exts[:2],
                                        fields=[('src', self.src),
@@ -131,10 +131,10 @@ class DataLoader():
             self.src.build_vocab(train, max_size=max_vocab)
             self.tgt.build_vocab(train, max_size=max_vocab)
             if not is_pretrain or valid_nli_fn is not None:
-                self.premise.vocab = self.tgt.vocab
-                self.hypothesis.vocab = self.tgt.vocab
+                # self.premise.vocab = self.tgt.vocab
+                # self.hypothesis.vocab = self.tgt.vocab
                 self.isSrcPremise.build_vocab(train)
-                self.labels.build_vocab(train)
+                # self.labels.build_vocab(train)
 
     def load_vocab(self, src_vocab, tgt_vocab):
         self.src.vocab = src_vocab

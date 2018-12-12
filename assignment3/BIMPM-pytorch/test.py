@@ -6,9 +6,10 @@ from torch.autograd import Variable
 
 from model.BIMPM import BIMPM
 from model.utils import SNLI, Quora
+import pdb
+import numpy as np
 
-
-def test(model, args, data, mode='test'):
+def test(model, args, data, mode='test', error_indice_suffix=''):
     if mode == 'dev':
         iterator = iter(data.dev_iter)
     else:
@@ -17,13 +18,22 @@ def test(model, args, data, mode='test'):
     criterion = nn.CrossEntropyLoss()
     model.eval()
     acc, loss, size = 0, 0, 0
+    num_correct_per_label = [0 for _ in range(len(data.LABEL.vocab.itos))]
+    num_per_label = [0 for _ in range(len(data.LABEL.vocab.itos))]
 
-    for batch in iterator:
+    genre = 'genre'
+    num_correct_per_genre = [0 for _ in range(len(data.GENRE.vocab.itos))]
+    num_per_genre = [0 for _ in range(len(data.GENRE.vocab.itos))]
+    error_indice = []
+    predicted_label = []
+
+    for batch_idx, batch in enumerate(iterator):
         if args.data_type == 'SNLI':
             s1, s2 = 'premise', 'hypothesis'
         else:
             s1, s2 = 'q1', 'q2'
 
+        genre_label = getattr(batch, genre)
         s1, s2 = getattr(batch, s1), getattr(batch, s2)
         kwargs = {'p': s1, 'h': s2}
 
@@ -44,13 +54,51 @@ def test(model, args, data, mode='test'):
         loss += batch_loss.item()
 
         _, pred = pred.max(dim=1)
+        # print(len(batch))
+        # for i in range(len(batch)):
+        #     if pred[i] != batch.label[i]:
+        #         print(i)
+        #         premise = []
+        #         hypothesis = []
+        #         for word_index in s1[i]:
+        #             premise += [data.TEXT.vocab.itos[word_index]]
+        #         for word_index in s2[i]:
+        #             hypothesis += [data.TEXT.vocab.itos[word_index]]
+        #         print(' '.join(premise))
+        #         print(' '.join(hypothesis))
+        #         print(data.LABEL.vocab.itos[pred[i]], data.LABEL.vocab.itos[batch.label[i]])
+        #         pdb.set_trace()
         acc += (pred == batch.label).sum().float()
         size += len(pred)
+        predicted_label += pred.tolist()
+        for i in range(len(batch)):
+            genre_index = genre_label[i]
+            num_per_genre[genre_index] += 1
+
+            label_index = batch.label[i]
+            num_per_label[label_index] += 1
+            if pred[i] == batch.label[i]:
+                num_correct_per_genre[genre_index] += 1
+                num_correct_per_label[label_index] += 1
+            else:
+                error_indice.append(batch_idx * len(batch) + i)
 
     acc /= size
     acc = acc.cpu().item()
-    return loss, acc
+    print(data.LABEL.vocab.itos)
+    print(np.array(num_correct_per_label)/np.array(num_per_label))
 
+    print(data.GENRE.vocab.itos)
+    print(np.array(num_correct_per_genre)/np.array(num_per_genre))
+    with open('error_indices_' + error_indice_suffix + '.txt', 'w') as f:
+        for i in error_indice:
+            f.write(str(i) + '\n')
+    
+    # with open('predicted_label.txt', 'w') as f:
+    #     for i in predicted_label:
+    #         f.write(data.LABEL.vocab.itos[i] + '\n')
+
+    return loss, acc
 
 def load_model(args, data, saved_state_dict):
     model = BIMPM(args, data)
@@ -61,11 +109,11 @@ def load_model(args, data, saved_state_dict):
 
     return model
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model-path', required=True)
-    parser.add_argument('--gpu', default=1, type=int)
+    parser.add_argument('--gpu', default=-1, type=int)
+    parser.add_argument('--suffix')
 
     args = parser.parse_args()
     if args.gpu > -1:
@@ -91,6 +139,6 @@ if __name__ == '__main__':
     print('loading model...')
     model = load_model(saved_args, data, saved_data['model'])
 
-    _, acc = test(model, saved_args, data)
+    _, acc = test(model, saved_args, data, error_indice_suffix=args.suffix)
 
     print(f'test acc: {acc:.3f}')
