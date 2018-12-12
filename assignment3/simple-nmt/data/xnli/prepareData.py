@@ -121,4 +121,4 @@ def prepareData(files, outputPrefix, splitRatio = 0.9, skipLabels = set()):
 files = ['xnli.dev.tsv', 'xnli.test.tsv']
 prepareData(files, 'nli_split', splitRatio = 0.9, skipLabels = set())
 prepareData(files, 'nli_all', splitRatio = 1, skipLabels = set())
-prepareData(files, 'nli_all_skip_neutral', splitRatio = 1, skipLabels = set(['neutral']))
+prepareData(files, 'nli_no_neutral', splitRatio = 0.9, skipLabels = set(['neutral']))

@@ -5,24 +5,33 @@ import pickle
 
 from nltk import word_tokenize
 
-
 class SNLI():
     def __init__(self, args):
         self.TEXT = data.Field(batch_first=True, tokenize=word_tokenize, lower=True)
+        # self.TEXT = data.Field(batch_first=True, lower=True)
         self.LABEL = data.Field(sequential=False, unk_token=None)
+        self.GENRE = data.Field(sequential=False, unk_token=None)
 
-        self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
+        # self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
+        self.train, self.dev, self.test = datasets.MultiNLI.splits(self.TEXT, self.LABEL, genre_field=self.GENRE)
 
-        vocab = pickle.load(open('iswlt_xnli_snli_merged_vocab', 'rb'))
-        vocab.vectors = None
-        vocab.load_vectors(GloVe(name='840B', dim=300), unk_init=None, cache=None)
+        vocab = pickle.load(open('iswlt_xnli_multinli_merged_vocab', 'rb'))
+        # vocab.vectors = None
+        # vocab.load_vectors(GloVe(name='840B', dim=300), unk_init=None, cache=None)
         self.TEXT.vocab = vocab
-        self.LABEL.build_vocab(self.train)
+        # self.LABEL.build_vocab(self.train)
+        self.LABEL.vocab = pickle.load(open('multinli_label_vocab', 'rb'))
+        self.GENRE.build_vocab(self.test)
+        # print(self.GENRE.vocab.itos)
 
         self.train_iter, self.dev_iter, self.test_iter = \
             data.BucketIterator.splits((self.train, self.dev, self.test),
                                        batch_sizes=[args.batch_size] * 3,
                                        device='cuda:%d' % args.gpu if args.gpu >= 0 else 'cpu')
+        
+        print(self.test_iter.sort_within_batch, self.test_iter.shuffle)
+        self.test_iter.sort_within_batch = False
+        self.test_iter.sort = False
 
         self.max_word_len = max([len(w) for w in self.TEXT.vocab.itos])
         # for <pad>
